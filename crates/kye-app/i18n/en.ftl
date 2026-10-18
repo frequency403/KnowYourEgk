@@ -133,3 +133,14 @@ field-special-group = Special group
 field-dmp = DMP marker
 field-wop = WOP
 field-schema = Schema version
+
+## Clipboard
+
+copy-tooltip = Copy
+copy-done = Copied
+copy-all-tooltip = Copy all
+
+## Footer links
+
+footer-github = Source code on GitHub
+footer-donate = Buy me a coffee

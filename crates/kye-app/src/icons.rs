@@ -132,6 +132,44 @@ pub fn info(p: &Painter, rect: Rect, c: Color32) {
     p.circle_filled(g.p(10.0, 14.0), 1.0 * g.scale, c);
 }
 
+/// Two overlapping sheets (copy to clipboard).
+pub fn copy(p: &Painter, rect: Rect, c: Color32) {
+    let g = Grid::new(rect, Vec2::splat(18.0));
+    let s = g.s(1.4, c);
+    p.rect_stroke(
+        g.r(6.0, 6.0, 9.0, 9.5),
+        g.radius(1.8),
+        s,
+        egui::StrokeKind::Middle,
+    );
+    p.add(Shape::line(
+        vec![g.p(12.0, 3.5), g.p(4.8, 3.5), g.p(3.5, 4.8), g.p(3.5, 12.5)],
+        s,
+    ));
+}
+
+/// Coffee cup (donate link).
+pub fn cup(p: &Painter, rect: Rect, c: Color32) {
+    let g = Grid::new(rect, Vec2::splat(16.0));
+    let s = g.s(1.4, c);
+    p.add(Shape::line(
+        vec![
+            g.p(2.5, 6.0),
+            g.p(3.2, 12.5),
+            g.p(10.8, 12.5),
+            g.p(11.5, 6.0),
+        ],
+        s,
+    ));
+    p.line_segment([g.p(2.5, 6.0), g.p(11.5, 6.0)], s);
+    p.add(Shape::line(
+        arc(g.p(12.2, 8.3), 2.0 * g.scale, -0.5 * PI, 0.5 * PI),
+        s,
+    ));
+    p.line_segment([g.p(5.5, 1.5), g.p(5.5, 3.5)], s);
+    p.line_segment([g.p(8.5, 1.5), g.p(8.5, 3.5)], s);
+}
+
 /// App logo: a card with chip and text lines.
 pub fn logo(p: &Painter, rect: Rect, c: Color32) {
     let g = Grid::new(rect, Vec2::splat(32.0));

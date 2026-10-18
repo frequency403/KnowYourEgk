@@ -132,3 +132,14 @@ field-special-group = Besondere Personengruppe
 field-dmp = DMP-Kennzeichnung
 field-wop = WOP
 field-schema = Schemaversion
+
+## Zwischenablage
+
+copy-tooltip = Kopieren
+copy-done = Kopiert
+copy-all-tooltip = Alles kopieren
+
+## Links in der Fußzeile
+
+footer-github = Quellcode auf GitHub
+footer-donate = Spendier mir einen Kaffee

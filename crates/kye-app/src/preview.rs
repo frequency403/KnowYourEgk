@@ -158,6 +158,7 @@ fn app(readers: Vec<ReaderInfo>, phase: Phase, tab: Tab, can: &str, lang: Lang) 
         can: can.to_owned(),
         phase,
         tab,
+        footer_height: 0.0,
     }
 }
 
@@ -207,6 +208,7 @@ fn render(name: &str, theme: Theme, size: egui::Vec2, state: App) {
             (state, false),
         );
     theme::install(&harness.ctx);
+    egui_extras::install_image_loaders(&harness.ctx);
     harness.state_mut().1 = true;
     // Fonts and layout settle over a few frames; spinners never stop repainting.
     harness.run_steps(6);
@@ -331,4 +333,32 @@ fn preview() {
     for (name, theme, state) in scenes {
         render(name, theme, size, state);
     }
+
+    // Minimum window size: the sidebar must scroll instead of overlapping, and
+    // the result header must wrap.
+    let min = egui::vec2(900.0, 600.0);
+    render(
+        "20-min-nfc-start",
+        Theme::Dark,
+        min,
+        app(
+            slots(false, true),
+            Phase::Idle,
+            Tab::Overview,
+            "12",
+            Lang::De,
+        ),
+    );
+    render(
+        "21-min-result",
+        Theme::Light,
+        min,
+        app(
+            slots(false, true),
+            done(CardInterface::Contactless, true),
+            Tab::Overview,
+            "",
+            Lang::De,
+        ),
+    );
 }

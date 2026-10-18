@@ -1,0 +1,1 @@
+`github-mark.svg`: the `mark-github` icon from [GitHub Octicons](https://github.com/primer/octicons) (MIT License, © GitHub Inc.), recolored white so the app can tint it. Used only to link to the project on GitHub.

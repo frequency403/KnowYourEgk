@@ -18,6 +18,16 @@ use crate::icons;
 use crate::theme::{self, Palette, ThemeChoice, bold, medium, mono, regular, semibold};
 use crate::worker::{self, Event, Progress, ReadError, ReadOutcome, Request, Worker};
 
+/// Project page, linked in the sidebar footer.
+const REPO_URL: &str = "https://github.com/frequency403/KnowYourEgk";
+/// Shown as the link text next to the GitHub mark.
+const REPO_OWNER: &str = "frequency403";
+/// Donation page (Buy Me a Coffee, Ko-fi, GitHub Sponsors, …). The donate link
+/// is hidden while this is `None`.
+const DONATE_URL: Option<&str> = None;
+
+const GITHUB_MARK: &[u8] = include_bytes!("../assets/icons/github-mark.svg");
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Tab {
     Overview,
@@ -52,11 +62,14 @@ pub struct App {
     can: String,
     phase: Phase,
     tab: Tab,
+    /// Height of the sidebar footer in the last frame, to pin it to the bottom.
+    footer_height: f32,
 }
 
 impl App {
     pub fn new(cc: &eframe::CreationContext<'_>) -> std::io::Result<Self> {
         theme::install(&cc.egui_ctx);
+        egui_extras::install_image_loaders(&cc.egui_ctx);
         let theme = ThemeChoice::System;
         theme.apply(&cc.egui_ctx);
         let ctx = cc.egui_ctx.clone();
@@ -71,6 +84,7 @@ impl App {
             can: String::new(),
             phase: Phase::Idle,
             tab: Tab::Overview,
+            footer_height: 0.0,
         })
     }
 
@@ -148,13 +162,16 @@ impl App {
                 self.theme_selector(ui, &pal);
                 ui.add_space(12.0);
                 self.language_selector(ui, &pal);
-                ui.add_space(16.0);
-                ui.label(
-                    RichText::new(self.tr.t("header-offline"))
-                        .font(regular(13.0))
-                        .color(pal.muted),
-                );
-                icons::paint(ui, vec2(16.0, 16.0), |p, r| icons::lock(p, r, pal.muted));
+                // The offline note goes first when the window gets narrow.
+                if ui.available_width() > 420.0 {
+                    ui.add_space(16.0);
+                    ui.label(
+                        RichText::new(self.tr.t("header-offline"))
+                            .font(regular(13.0))
+                            .color(pal.muted),
+                    );
+                    icons::paint(ui, vec2(16.0, 16.0), |p, r| icons::lock(p, r, pal.muted));
+                }
             });
         });
     }
@@ -210,40 +227,80 @@ impl App {
 
     fn sidebar(&mut self, ui: &mut egui::Ui) {
         let pal = *Palette::of(ui.ctx());
-        ui.spacing_mut().item_spacing.y = 14.0;
+        let viewport = ui.available_height();
+        ScrollArea::vertical()
+            .id_salt("sidebar")
+            .auto_shrink([false, false])
+            .show(ui, |ui| {
+                ui.spacing_mut().item_spacing.y = 14.0;
+                let top = ui.cursor().top();
+                ui.label(
+                    RichText::new(self.tr.t("readers-heading").to_uppercase())
+                        .font(semibold(13.0))
+                        .color(pal.muted),
+                );
+                if let Some(e) = &self.unavailable {
+                    ui.label(
+                        RichText::new(
+                            self.tr
+                                .t_with("readers-unavailable", &[("detail", e.clone().into())]),
+                        )
+                        .color(pal.error_ink),
+                    );
+                } else if self.readers.is_empty() {
+                    ui.label(RichText::new(self.tr.t("readers-none")).color(pal.muted));
+                }
+
+                let mut start = None;
+                for r in self.readers.clone() {
+                    if let Some(i) = self.reader_card(ui, &pal, &r) {
+                        start = Some((r.name.clone(), i));
+                    }
+                }
+                if let Some((name, interface)) = start {
+                    self.start_read(&name, interface);
+                }
+
+                // Pin the footer to the bottom while there is room; otherwise it
+                // simply follows the reader cards and the sidebar scrolls.
+                let used = ui.cursor().top() - top;
+                let free = viewport - used - self.footer_height - 14.0;
+                if free > 0.0 {
+                    ui.add_space(free);
+                }
+                let footer = ui.scope(|ui| self.sidebar_footer(ui, &pal)).response.rect;
+                self.footer_height = footer.height();
+            });
+    }
+
+    fn sidebar_footer(&self, ui: &mut egui::Ui, pal: &Palette) {
+        ui.spacing_mut().item_spacing.y = 10.0;
         ui.label(
-            RichText::new(self.tr.t("readers-heading").to_uppercase())
-                .font(semibold(13.0))
+            RichText::new(self.tr.t("readers-footer"))
+                .font(regular(12.0))
                 .color(pal.muted),
         );
-        if let Some(e) = &self.unavailable {
-            ui.label(
-                RichText::new(
-                    self.tr
-                        .t_with("readers-unavailable", &[("detail", e.clone().into())]),
-                )
-                .color(pal.error_ink),
+        let y = ui.cursor().top();
+        ui.painter()
+            .hline(ui.max_rect().x_range(), y, Stroke::new(1.0, pal.line));
+        ui.add_space(2.0);
+        ui.horizontal_wrapped(|ui| {
+            ui.spacing_mut().item_spacing.x = 6.0;
+            ui.add(
+                egui::Image::from_bytes("bytes://github-mark.svg", GITHUB_MARK)
+                    .tint(pal.ink)
+                    .fit_to_exact_size(vec2(16.0, 16.0)),
             );
-        } else if self.readers.is_empty() {
-            ui.label(RichText::new(self.tr.t("readers-none")).color(pal.muted));
-        }
-
-        let mut start = None;
-        for r in self.readers.clone() {
-            if let Some(i) = self.reader_card(ui, &pal, &r) {
-                start = Some((r.name.clone(), i));
+            ui.hyperlink_to(RichText::new(REPO_OWNER).font(medium(13.0)), REPO_URL)
+                .on_hover_text(self.tr.t("footer-github"));
+            if let Some(url) = DONATE_URL {
+                ui.add_space(14.0);
+                icons::paint(ui, vec2(16.0, 16.0), |p, r| icons::cup(p, r, pal.ink));
+                ui.hyperlink_to(
+                    RichText::new(self.tr.t("footer-donate")).font(medium(13.0)),
+                    url,
+                );
             }
-        }
-        if let Some((name, interface)) = start {
-            self.start_read(&name, interface);
-        }
-
-        ui.with_layout(Layout::bottom_up(Align::Min), |ui| {
-            ui.label(
-                RichText::new(self.tr.t("readers-footer"))
-                    .font(regular(12.0))
-                    .color(pal.muted),
-            );
         });
     }
 
@@ -453,30 +510,41 @@ impl App {
                 );
             });
             ui.add_space(20.0);
-            ui.scope(|ui| {
-                ui.set_max_width(620.0);
-                ui.columns(2, |cols| {
-                    for (col, (title, text)) in cols.iter_mut().zip([
-                        ("empty-contact-title", "empty-contact-text"),
-                        ("empty-nfc-title", "empty-nfc-text"),
-                    ]) {
-                        card(pal).inner_margin(Margin::same(18)).show(col, |ui| {
-                            ui.set_width(ui.available_width());
-                            ui.with_layout(Layout::top_down(Align::Min), |ui| {
-                                ui.label(
-                                    RichText::new(tr.t(title))
-                                        .font(semibold(14.0))
-                                        .color(pal.ink),
-                                );
-                                ui.label(
-                                    RichText::new(tr.t(text))
-                                        .font(regular(13.0))
-                                        .color(pal.muted),
-                                );
-                            });
-                        });
-                    }
+            let width = ui.available_width().min(620.0);
+            let infos = [
+                ("empty-contact-title", "empty-contact-text"),
+                ("empty-nfc-title", "empty-nfc-text"),
+            ];
+            let info_card = |ui: &mut egui::Ui, title: &str, text: &str| {
+                card(pal).inner_margin(Margin::same(18)).show(ui, |ui| {
+                    ui.set_width(ui.available_width());
+                    ui.with_layout(Layout::top_down(Align::Min), |ui| {
+                        ui.label(
+                            RichText::new(tr.t(title))
+                                .font(semibold(14.0))
+                                .color(pal.ink),
+                        );
+                        ui.label(
+                            RichText::new(tr.t(text))
+                                .font(regular(13.0))
+                                .color(pal.muted),
+                        );
+                    });
                 });
+            };
+            ui.allocate_ui_with_layout(vec2(width, 0.0), Layout::top_down(Align::Min), |ui| {
+                ui.set_width(width);
+                if width >= 520.0 {
+                    ui.columns(2, |cols| {
+                        for (col, (title, text)) in cols.iter_mut().zip(infos) {
+                            info_card(col, title, text);
+                        }
+                    });
+                } else {
+                    for (title, text) in infos {
+                        info_card(ui, title, text);
+                    }
+                }
             });
         });
     }
@@ -689,7 +757,34 @@ impl App {
                 });
         }
 
-        // Avatar, name, insurer and insurant ID; badge and discard on the right.
+        // Avatar, name, insurer and insurant ID; badge and discard on the right,
+        // or on their own row when the window is narrow.
+        let (via, secure) = match (outcome.interface, outcome.secured) {
+            (CardInterface::Contactless, _) => (tr.t("via-contactless"), true),
+            (_, true) => (tr.t("via-contact-pace"), true),
+            _ => (tr.t("via-contact"), false),
+        };
+        let wide = ui.available_width() >= 760.0;
+        // Badge and discard button; in a right-to-left row they end up at the
+        // right edge, in a left-to-right row at the left.
+        let mut actions = |ui: &mut egui::Ui, rtl: bool| {
+            ui.spacing_mut().item_spacing.x = 10.0;
+            if !rtl {
+                badge(ui, pal, &via, secure);
+            }
+            discard |= button(
+                ui,
+                pal,
+                &tr.t("button-discard"),
+                Kind::Secondary,
+                true,
+                false,
+            )
+            .clicked();
+            if rtl {
+                badge(ui, pal, &via, secure);
+            }
+        };
         ui.horizontal(|ui| {
             ui.spacing_mut().item_spacing.x = 16.0;
             let initials = initials(p);
@@ -706,14 +801,22 @@ impl App {
             ui.vertical(|ui| {
                 ui.spacing_mut().item_spacing.y = 4.0;
                 let name = join(&[&p.first_name, &p.last_name]).unwrap_or_default();
-                ui.label(RichText::new(name).font(bold(26.0)).color(pal.ink));
+                let row = ui.horizontal(|ui| {
+                    ui.spacing_mut().item_spacing.x = 8.0;
+                    ui.label(RichText::new(&name).font(bold(26.0)).color(pal.ink));
+                    copy_slot(ui)
+                });
+                let show = ui.rect_contains_pointer(row.response.rect);
+                finish_copy(ui, pal, tr, row.inner, show, "copy-tooltip", || {
+                    name.clone()
+                });
                 ui.horizontal_wrapped(|ui| {
                     ui.spacing_mut().item_spacing.x = 14.0;
                     if let Some(payer) = &i.payer_name {
                         ui.label(RichText::new(payer).font(regular(14.0)).color(pal.muted));
                     }
                     if let Some(id) = &p.insurant_id {
-                        ui.horizontal(|ui| {
+                        let row = ui.horizontal(|ui| {
                             ui.spacing_mut().item_spacing.x = 4.0;
                             ui.label(
                                 RichText::new(tr.t("insurant-id-inline"))
@@ -721,29 +824,20 @@ impl App {
                                     .color(pal.muted),
                             );
                             ui.label(RichText::new(id).font(mono(14.0)).color(pal.ink));
+                            copy_slot(ui)
                         });
+                        let show = ui.rect_contains_pointer(row.response.rect);
+                        finish_copy(ui, pal, tr, row.inner, show, "copy-tooltip", || id.clone());
                     }
                 });
             });
-            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                ui.spacing_mut().item_spacing.x = 10.0;
-                discard = button(
-                    ui,
-                    pal,
-                    &tr.t("button-discard"),
-                    Kind::Secondary,
-                    true,
-                    false,
-                )
-                .clicked();
-                let (via, secure) = match (outcome.interface, outcome.secured) {
-                    (CardInterface::Contactless, _) => (tr.t("via-contactless"), true),
-                    (_, true) => (tr.t("via-contact-pace"), true),
-                    _ => (tr.t("via-contact"), false),
-                };
-                badge(ui, pal, &via, secure);
-            });
+            if wide {
+                ui.with_layout(Layout::right_to_left(Align::Center), |ui| actions(ui, true));
+            }
         });
+        if !wide {
+            ui.horizontal(|ui| actions(ui, false));
+        }
 
         // Tabs with a baseline under the whole row.
         let tabs_rect = ui
@@ -785,26 +879,26 @@ impl App {
                 if ui.available_width() >= 640.0 {
                     ui.columns(2, |cols| {
                         for (col, (title, rows)) in cols.iter_mut().zip(cards.iter()) {
-                            summary_card(col, pal, title, rows);
+                            summary_card(col, pal, tr, title, rows);
                         }
                     });
                 } else {
                     for (title, rows) in &cards {
-                        summary_card(ui, pal, title, rows);
+                        summary_card(ui, pal, tr, title, rows);
                     }
                 }
             }
             Tab::Personal | Tab::Insurance => {
-                let rows = if tab == Tab::Personal {
-                    personal_rows(tr, p)
+                let (title, rows) = if tab == Tab::Personal {
+                    (tr.t("section-personal"), personal_rows(tr, p))
                 } else {
-                    insurance_rows(tr, i)
+                    (tr.t("section-insurance"), insurance_rows(tr, i))
                 };
                 card(pal)
-                    .inner_margin(Margin::symmetric(20, 0))
+                    .inner_margin(Margin::symmetric(20, 16))
                     .show(ui, |ui| {
                         ui.set_width(ui.available_width());
-                        definition_list(ui, pal, &rows);
+                        definition_list(ui, pal, tr, &title, &rows);
                     });
             }
             Tab::Raw => {
@@ -1037,22 +1131,112 @@ fn centered_column(ui: &mut egui::Ui, max_width: f32, add: impl FnOnce(&mut egui
     });
 }
 
-fn summary_card(ui: &mut egui::Ui, pal: &Palette, title: &str, rows: &[Row]) {
+/// Reserves an 18×18 copy button in the current row. Call [`finish_copy`]
+/// once the row is laid out, so it can show the button while the row is hovered.
+fn copy_slot(ui: &mut egui::Ui) -> egui::Response {
+    ui.allocate_exact_size(Vec2::splat(18.0), Sense::click()).1
+}
+
+/// Paints the copy button while `show` (and briefly after copying, as a check
+/// mark) and puts `text` on the clipboard when it is clicked.
+fn finish_copy(
+    ui: &egui::Ui,
+    pal: &Palette,
+    tr: &I18n,
+    slot: egui::Response,
+    show: bool,
+    tooltip: &str,
+    text: impl FnOnce() -> String,
+) {
+    let ctx = ui.ctx();
+    let now = ui.input(|i| i.time);
+    if slot.clicked() {
+        ctx.copy_text(text());
+        ctx.data_mut(|d| d.insert_temp(slot.id, now));
+    }
+    let copied_at: Option<f64> = ctx.data(|d| d.get_temp(slot.id));
+    let copied = copied_at.is_some_and(|t| now - t < 1.5);
+    if copied {
+        ctx.request_repaint_after(std::time::Duration::from_millis(200));
+    }
+    if !(show || copied || slot.has_focus()) {
+        return;
+    }
+    let painter = ui.painter();
+    if copied {
+        icons::check(painter, slot.rect.shrink(2.0), pal.accent);
+    } else {
+        let ink = if slot.hovered() { pal.ink } else { pal.faint };
+        icons::copy(painter, slot.rect, ink);
+    }
+    let label = if copied {
+        tr.t("copy-done")
+    } else {
+        tr.t(tooltip)
+    };
+    slot.widget_info(|| WidgetInfo::labeled(WidgetType::Button, true, &label));
+    slot.on_hover_cursor(CursorIcon::PointingHand)
+        .on_hover_text(label);
+}
+
+/// Text for "copy all" of a card: the title, then one `label: value` line per row.
+fn rows_as_text(title: &str, rows: &[Row]) -> String {
+    let mut out = format!("{title}\n");
+    for r in rows {
+        out.push_str(&format!("{}: {}\n", r.label, r.value));
+    }
+    out
+}
+
+/// Card title with a "copy all" button at the right.
+fn card_title(
+    ui: &mut egui::Ui,
+    pal: &Palette,
+    tr: &I18n,
+    title: &str,
+    text: impl FnOnce() -> String,
+) {
+    let slot = ui
+        .horizontal(|ui| {
+            ui.label(RichText::new(title).font(semibold(15.0)).color(pal.ink));
+            ui.with_layout(Layout::right_to_left(Align::Center), copy_slot)
+                .inner
+        })
+        .inner;
+    finish_copy(ui, pal, tr, slot, true, "copy-all-tooltip", text);
+}
+
+/// One `label  value [copy]` line; the copy button appears while hovered.
+fn value_row(ui: &mut egui::Ui, pal: &Palette, tr: &I18n, r: &Row, label_width: f32) {
+    let row = ui.horizontal_top(|ui| {
+        ui.spacing_mut().item_spacing.x = 8.0;
+        ui.allocate_ui_with_layout(vec2(label_width, 0.0), Layout::top_down(Align::Min), |ui| {
+            ui.set_width(label_width);
+            ui.label(RichText::new(&r.label).font(regular(14.0)).color(pal.muted));
+        });
+        let max_value = (ui.available_width() - 26.0).max(40.0);
+        ui.scope(|ui| {
+            ui.set_max_width(max_value);
+            ui.add(egui::Label::new(value_text(r, pal)).wrap());
+        });
+        copy_slot(ui)
+    });
+    let show = ui.rect_contains_pointer(row.response.rect);
+    finish_copy(ui, pal, tr, row.inner, show, "copy-tooltip", || {
+        r.value.clone()
+    });
+}
+
+fn summary_card(ui: &mut egui::Ui, pal: &Palette, tr: &I18n, title: &str, rows: &[Row]) {
     card(pal).inner_margin(Margin::same(20)).show(ui, |ui| {
         ui.set_width(ui.available_width());
-        ui.label(RichText::new(title).font(semibold(15.0)).color(pal.ink));
+        card_title(ui, pal, tr, title, || rows_as_text(title, rows));
         ui.add_space(4.0);
-        egui::Grid::new(title)
-            .num_columns(2)
-            .spacing([16.0, 10.0])
-            .min_col_width(ui.available_width() * 0.36)
-            .show(ui, |ui| {
-                for r in rows {
-                    ui.label(RichText::new(&r.label).font(regular(14.0)).color(pal.muted));
-                    ui.label(value_text(r, pal));
-                    ui.end_row();
-                }
-            });
+        ui.spacing_mut().item_spacing.y = 10.0;
+        let label_width = ui.available_width() * 0.36;
+        for r in rows {
+            value_row(ui, pal, tr, r, label_width);
+        }
     });
 }
 
@@ -1079,23 +1263,14 @@ fn value_text(r: &Row, pal: &Palette) -> RichText {
     RichText::new(&r.value).font(font).color(pal.ink)
 }
 
-fn definition_list(ui: &mut egui::Ui, pal: &Palette, rows: &[Row]) {
+fn definition_list(ui: &mut egui::Ui, pal: &Palette, tr: &I18n, title: &str, rows: &[Row]) {
+    card_title(ui, pal, tr, title, || rows_as_text(title, rows));
     let label_width = (ui.available_width() * 0.33).max(140.0);
     let count = rows.len();
     ui.spacing_mut().item_spacing.y = 0.0;
     for (n, r) in rows.iter().enumerate() {
         ui.add_space(12.0);
-        ui.horizontal_top(|ui| {
-            ui.allocate_ui_with_layout(
-                vec2(label_width, 0.0),
-                Layout::top_down(Align::Min),
-                |ui| {
-                    ui.set_width(label_width);
-                    ui.label(RichText::new(&r.label).font(regular(14.0)).color(pal.muted));
-                },
-            );
-            ui.label(value_text(r, pal));
-        });
+        value_row(ui, pal, tr, r, label_width);
         ui.add_space(12.0);
         if n + 1 < count {
             let y = ui.cursor().top();
@@ -1105,16 +1280,56 @@ fn definition_list(ui: &mut egui::Ui, pal: &Palette, rows: &[Row]) {
     }
 }
 
+/// Leaves of a document as `(path without the root element, value)`.
+fn raw_leaves(root: &Element) -> Vec<(String, String)> {
+    root.leaves()
+        .into_iter()
+        .map(|(path, value)| {
+            let path = path
+                .split_once('/')
+                .map_or(path.as_str(), |(_, rest)| rest)
+                .to_owned();
+            (path, value)
+        })
+        .collect()
+}
+
 fn raw_table(ui: &mut egui::Ui, pal: &Palette, tr: &I18n, pd: &Element, vd: &Element) {
+    let groups = [
+        (tr.t("raw-group-pd"), raw_leaves(pd)),
+        (tr.t("raw-group-vd"), raw_leaves(vd)),
+    ];
     Frame::new()
         .inner_margin(Margin::symmetric(20, 14))
         .show(ui, |ui| {
             ui.set_width(ui.available_width());
-            ui.label(
-                RichText::new(tr.t("raw-intro"))
-                    .font(regular(13.0))
-                    .color(pal.muted),
-            );
+            let slot = ui
+                .horizontal_top(|ui| {
+                    ui.scope(|ui| {
+                        ui.set_max_width((ui.available_width() - 30.0).max(100.0));
+                        ui.add(
+                            egui::Label::new(
+                                RichText::new(tr.t("raw-intro"))
+                                    .font(regular(13.0))
+                                    .color(pal.muted),
+                            )
+                            .wrap(),
+                        );
+                    });
+                    ui.with_layout(Layout::right_to_left(Align::Min), copy_slot)
+                        .inner
+                })
+                .inner;
+            finish_copy(ui, pal, tr, slot, true, "copy-all-tooltip", || {
+                let mut out = String::new();
+                for (caption, leaves) in &groups {
+                    out.push_str(&format!("{caption}\n"));
+                    for (path, value) in leaves {
+                        out.push_str(&format!("{path}\t{value}\n"));
+                    }
+                }
+                out
+            });
         });
     ScrollArea::horizontal().id_salt("raw").show(ui, |ui| {
         Frame::new()
@@ -1139,17 +1354,11 @@ fn raw_table(ui: &mut egui::Ui, pal: &Palette, tr: &I18n, pd: &Element, vd: &Ele
                             );
                         }
                         ui.end_row();
-                        for (caption, root) in
-                            [(tr.t("raw-group-pd"), pd), (tr.t("raw-group-vd"), vd)]
-                        {
+                        for (caption, leaves) in &groups {
                             ui.label(RichText::new(caption).font(semibold(13.0)).color(pal.ink));
                             ui.label("");
                             ui.end_row();
-                            for (path, value) in root.leaves() {
-                                let path = path
-                                    .split_once('/')
-                                    .map_or(path.as_str(), |(_, rest)| rest)
-                                    .to_owned();
+                            for (path, value) in leaves {
                                 ui.label(RichText::new(path).font(mono(13.0)).color(pal.muted));
                                 ui.label(RichText::new(value).font(mono(13.0)).color(pal.ink));
                                 ui.end_row();
