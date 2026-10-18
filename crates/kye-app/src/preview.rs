@@ -223,7 +223,8 @@ fn render(name: &str, theme: Theme, size: egui::Vec2, state: App) {
 #[ignore = "renders PNGs for design review; needs a GPU"]
 fn preview() {
     let size = egui::vec2(1280.0, 820.0);
-    let en = Lang::En;
+    let en = Lang::english();
+    let de = Lang::from_code("de").unwrap();
     let scenes: Vec<(&str, Theme, App)> = vec![
         (
             "01-start",
@@ -327,7 +328,7 @@ fn preview() {
                 done(CardInterface::Contact, false),
                 Tab::Insurance,
                 "",
-                Lang::De,
+                de,
             ),
         ),
     ];
@@ -336,7 +337,7 @@ fn preview() {
     }
 
     // Export samples (synthetic data) next to the screenshots.
-    for lang in [Lang::En, Lang::De] {
+    for lang in [en, de] {
         let tr = I18n::new(lang);
         let outcome = ReadOutcome {
             interface: CardInterface::Contactless,
@@ -344,7 +345,7 @@ fn preview() {
             vsd: vsd(true),
         };
         let doc = super::export_document(&tr, &outcome);
-        let code = if lang == Lang::De { "de" } else { "en" };
+        let code = lang.code();
         let dir = out_dir();
         std::fs::write(
             dir.join(format!("export-{code}.txt")),
@@ -370,13 +371,7 @@ fn preview() {
         "20-min-nfc-start",
         Theme::Dark,
         min,
-        app(
-            slots(false, true),
-            Phase::Idle,
-            Tab::Overview,
-            "12",
-            Lang::De,
-        ),
+        app(slots(false, true), Phase::Idle, Tab::Overview, "12", de),
     );
     render(
         "21-min-result",
@@ -387,7 +382,7 @@ fn preview() {
             done(CardInterface::Contactless, true),
             Tab::Overview,
             "",
-            Lang::De,
+            de,
         ),
     );
 }

@@ -1,6 +1,9 @@
 # KnowYourEgk UI texts - English (default and fallback language).
 # Every message here must also exist in all other .ftl files.
 
+# Name of this language in this language, shown in the language menu.
+language-name = English
+
 # Dates are stored as YYYYMMDD on the card.
 date-format = { $year }-{ $month }-{ $day }
 

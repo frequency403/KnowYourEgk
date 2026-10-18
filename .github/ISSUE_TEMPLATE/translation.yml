@@ -1,0 +1,31 @@
+name: Translation
+description: Request a new language or report a problem with a translation
+labels: [translation]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Translations are done on Weblate or as a pull request with a `.ftl` file,
+        see [TRANSLATING.md](https://github.com/frequency403/KnowYourEgk/blob/main/TRANSLATING.md).
+  - type: input
+    id: language
+    attributes:
+      label: Language
+      description: Name and code, e.g. "French (fr)" or "Portuguese, Brazil (pt_BR)"
+    validations:
+      required: true
+  - type: dropdown
+    id: kind
+    attributes:
+      label: What is it about?
+      options:
+        - I want to add or maintain this language
+        - A translated text is wrong or unclear
+        - The English source text is wrong or unclear
+    validations:
+      required: true
+  - type: textarea
+    id: details
+    attributes:
+      label: Details
+      description: Message ids (e.g. `button-read`), current and suggested text, screenshots.

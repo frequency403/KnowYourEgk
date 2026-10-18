@@ -185,7 +185,7 @@ impl App {
         egui::ComboBox::from_id_salt("language")
             .selected_text(lang.native_name())
             .show_ui(ui, |ui| {
-                for l in Lang::ALL {
+                for l in Lang::all() {
                     ui.selectable_value(&mut lang, l, l.native_name());
                 }
             });

@@ -11,7 +11,7 @@ Rust/egui-Desktop-App, die die Versichertenstammdaten (VSD) einer eGK G2.1 ausli
 - Code-Kommentare auf Englisch, Rust-Standardkonventionen (`rustfmt`, `clippy -D warnings`).
 - Keine `unwrap()`/`expect()` außerhalb von Tests. Fehler über `thiserror`.
 - UI nach dem Konzept-Prototyp (Claude-Design-Canvas „KnowYourEgk UI Concept“). Farben nur aus `theme::Palette` (LIGHT/DARK), Theme folgt System mit Override in der Kopfzeile; Schrift IBM Plex (OFL, `crates/kye-app/assets/fonts/`). Layout-Review: `cargo test -p kye-app preview -- --ignored` rendert alle Screens mit synthetischen Daten nach `target/ui-preview/`.
-- Alle UI-Texte über Fluent (`crates/kye-app/i18n/*.ftl`, Zugriff `I18n::t`/`t_with`), Standard und Fallback Englisch. Keine String-Literale für Nutzertexte im UI-Code; Tests prüfen Vollständigkeit aller Sprachen sowie fehlende und ungenutzte Schlüssel.
+- Alle UI-Texte über Fluent (`crates/kye-app/i18n/*.ftl`, Zugriff `I18n::t`/`t_with`), Standard und Fallback Englisch. Jede `<code>.ftl` wird per `build.rs` automatisch als Sprache eingebunden (Übersetzungen kommen über Weblate, siehe TRANSLATING.md). Keine String-Literale für Nutzertexte im UI-Code. Tests: `en.ftl` vollständig ohne ungenutzte Schlüssel; andere Sprachen dürfen unvollständig sein, aber keine unbekannten Schlüssel und exakt dieselben Platzhalter wie Englisch.
 - Schlüsselmaterial (K_π, K_enc, K_mac, CAN) mit `zeroize`. CAN niemals persistieren.
 
 ## Workspace

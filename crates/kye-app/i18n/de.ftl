@@ -1,5 +1,8 @@
 # KnowYourEgk UI-Texte - Deutsch.
 
+# Name of this language in this language, shown in the language menu.
+language-name = Deutsch
+
 # Dates are stored as YYYYMMDD on the card.
 date-format = { $day }.{ $month }.{ $year }
 
