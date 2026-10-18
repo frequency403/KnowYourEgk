@@ -5,6 +5,11 @@
 
 **See what is stored on your German health insurance card.**
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/result-dark.png">
+  <img alt="KnowYourEgk showing the insurance data of a health card after a contactless read" src="docs/screenshots/result-light.png">
+</picture>
+
 KnowYourEgk is a small desktop app (Windows, Linux, macOS) that reads the
 *Versichertenstammdaten* (VSD, insurance master data) from a German
 electronic health card (*elektronische Gesundheitskarte*, eGK) of
@@ -31,6 +36,17 @@ stores nothing on disk and never saves the CAN.
 | Insurance data (EF.VD) | health insurer and its institution code (IK), billing insurer, coverage start/end, insurant type (member, family member, pensioner), WOP code, special groups / DMP if present |
 | Status (EF.StatusVD) | a warning if the last update of the card data did not complete |
 | All fields (raw) | every element of the stored XML documents, including fields the app has no label for |
+
+### Screenshots
+
+| | |
+|---|---|
+| ![Card on the NFC reader: the CAN field appears right in the reader list](docs/screenshots/contactless-can.png) | ![Reading the card step by step over an encrypted connection](docs/screenshots/reading.png) |
+| Contactless: enter the CAN printed on the card | Reading over an encrypted channel (PACE) |
+| ![Insurance tab in dark mode with a warning about an incomplete update](docs/screenshots/insurance-dark.png) | ![All stored XML fields, German interface](docs/screenshots/all-fields-de.png) |
+| Dark mode, insurance details and card status warning | Every stored field, here with the German interface |
+
+All screenshots show made-up example data.
 
 Out of scope: medical data, the emergency data set, protected insurance data
 (EF.GVD, which needs a health professional card), PIN-protected objects and
@@ -176,6 +192,19 @@ programming. All UI texts live in [Fluent](https://projectfluent.org) files in
 fallback, every other `<code>.ftl` file is picked up as a language
 automatically, and partial translations are fine. See
 [TRANSLATING.md](TRANSLATING.md) for the guidelines.
+
+### UI
+
+The UI lives in [`crates/kye-app/src/app.rs`](crates/kye-app/src/app.rs).
+All colors come from one palette per mode in
+[`theme.rs`](crates/kye-app/src/theme.rs), icons are painted in
+[`icons.rs`](crates/kye-app/src/icons.rs). To review every screen in light,
+dark and German with synthetic data, render them to PNG:
+
+```bash
+cargo test -p kye-app preview -- --ignored   # writes target/ui-preview/*.png
+KYE_UPDATE_SCREENSHOTS=1 cargo test -p kye-app preview -- --ignored   # also refreshes docs/screenshots/
+```
 
 ### Releases
 

@@ -2271,6 +2271,7 @@ dependencies = [
  "egui_kittest",
  "fluent-bundle",
  "fluent-syntax",
+ "image",
  "kye-apdu",
  "kye-egk",
  "kye-pace",

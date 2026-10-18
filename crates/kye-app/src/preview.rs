@@ -6,6 +6,9 @@
 //!
 //! Writes PNGs to `target/ui-preview/` (or `$KYE_PREVIEW_DIR`). Needs a GPU or
 //! a software Vulkan/GL driver, so it is not part of the normal test run.
+//!
+//! With `KYE_UPDATE_SCREENSHOTS=1` the README screenshots in
+//! `docs/screenshots/` are refreshed as well.
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
@@ -217,6 +220,20 @@ fn render(name: &str, theme: Theme, size: egui::Vec2, state: App) {
     let path = out_dir().join(format!("{name}.png"));
     image.save(&path).unwrap();
     println!("wrote {}", path.display());
+
+    // README screenshots: without the harness' transparent 8 px margin.
+    if let Some(file) = name.strip_prefix("readme-")
+        && std::env::var_os("KYE_UPDATE_SCREENSHOTS").is_some()
+    {
+        let (w, h) = image.dimensions();
+        let cropped = image::imageops::crop_imm(&image, 8, 8, w - 16, h - 16).to_image();
+        let rgb = image::DynamicImage::ImageRgba8(cropped).to_rgb8();
+        let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../docs/screenshots");
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join(format!("{file}.png"));
+        rgb.save(&path).unwrap();
+        println!("wrote {}", path.display());
+    }
 }
 
 #[test]
@@ -363,6 +380,78 @@ fn preview() {
         )
         .unwrap();
     }
+
+    // Screenshots for the README (`docs/screenshots/`, see README).
+    let readme = egui::vec2(1200.0, 760.0);
+    render(
+        "readme-result-light",
+        Theme::Light,
+        readme,
+        app(
+            slots(false, true),
+            done(CardInterface::Contactless, false),
+            Tab::Overview,
+            "",
+            en,
+        ),
+    );
+    render(
+        "readme-result-dark",
+        Theme::Dark,
+        readme,
+        app(
+            slots(false, true),
+            done(CardInterface::Contactless, false),
+            Tab::Overview,
+            "",
+            en,
+        ),
+    );
+    render(
+        "readme-contactless-can",
+        Theme::Light,
+        readme,
+        app(slots(false, true), Phase::Idle, Tab::Overview, "498", en),
+    );
+    render(
+        "readme-reading",
+        Theme::Light,
+        readme,
+        app(
+            slots(false, true),
+            Phase::Reading {
+                secure: true,
+                progress: Progress::ReadingSecure,
+            },
+            Tab::Overview,
+            "123456",
+            en,
+        ),
+    );
+    render(
+        "readme-insurance-dark",
+        Theme::Dark,
+        readme,
+        app(
+            slots(true, false),
+            done(CardInterface::Contact, true),
+            Tab::Insurance,
+            "",
+            en,
+        ),
+    );
+    render(
+        "readme-all-fields-de",
+        Theme::Light,
+        readme,
+        app(
+            slots(true, false),
+            done(CardInterface::Contact, false),
+            Tab::Raw,
+            "",
+            de,
+        ),
+    );
 
     // Minimum window size: the sidebar must scroll instead of overlapping, and
     // the result header must wrap.
