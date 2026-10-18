@@ -35,7 +35,7 @@ pub fn cbc_encrypt(key: &[u8; 16], iv: &[u8; 16], data: &[u8]) -> Vec<u8> {
     let cipher = Aes128::new(&Array::from(*key));
     let mut prev = *iv;
     let mut out = Vec::with_capacity(data.len());
-    for chunk in data.chunks_exact(16) {
+    for chunk in data.as_chunks::<16>().0 {
         let mut block = Array::<u8, _>::default();
         for (b, (d, p)) in block.iter_mut().zip(chunk.iter().zip(prev.iter())) {
             *b = d ^ p;
@@ -52,7 +52,7 @@ pub fn cbc_decrypt(key: &[u8; 16], iv: &[u8; 16], data: &[u8]) -> Vec<u8> {
     let cipher = Aes128::new(&Array::from(*key));
     let mut prev = *iv;
     let mut out = Vec::with_capacity(data.len());
-    for chunk in data.chunks_exact(16) {
+    for chunk in data.as_chunks::<16>().0 {
         let mut block = Array::<u8, _>::default();
         block.copy_from_slice(chunk);
         cipher.decrypt_block(&mut block);

@@ -99,7 +99,7 @@ pub fn decrypt_nonce(k_pi: &[u8; 16], z: &[u8]) -> Result<Zeroizing<Vec<u8>>, Pa
     let cipher = Aes128::new(&Array::from(*k_pi));
     let mut out = Zeroizing::new(Vec::with_capacity(z.len()));
     let mut prev = [0u8; 16];
-    for chunk in z.chunks_exact(16) {
+    for chunk in z.as_chunks::<16>().0 {
         let mut block = Array::<u8, _>::default();
         block.copy_from_slice(chunk);
         cipher.decrypt_block(&mut block);
