@@ -25,7 +25,7 @@ const REPO_URL: &str = "https://github.com/frequency403/KnowYourEgk";
 const REPO_OWNER: &str = "frequency403";
 /// Donation page (Buy Me a Coffee, Ko-fi, GitHub Sponsors, …). The donate link
 /// is hidden while this is `None`.
-const DONATE_URL: Option<&str> = None;
+const DONATE_URL: Option<&str> = Some("https://github.com/sponsors/frequency403");
 
 const GITHUB_MARK: &[u8] = include_bytes!("../assets/icons/github-mark.svg");
 
