@@ -1,0 +1,16 @@
+[package]
+name = "kye-sm"
+description = "Secure messaging channel (AES-CBC / CMAC) as a CardTransport decorator"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+kye-apdu.workspace = true
+kye-transport.workspace = true
+thiserror.workspace = true
+
+[lints]
+workspace = true

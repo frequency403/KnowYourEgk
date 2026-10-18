@@ -1,0 +1,19 @@
+[package]
+name = "m0-spike"
+description = "M0 hardware spike: reader enumeration, ATR, contact StatusVD, contactless CardAccess/MSE/GA1/extended APDU"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+kye-apdu.workspace = true
+kye-transport = { workspace = true, features = ["pcsc"] }
+kye-pace.workspace = true
+kye-egk.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+
+[lints]
+workspace = true

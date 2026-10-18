@@ -1,0 +1,23 @@
+[package]
+name = "kye-transport"
+description = "Card transport abstraction with an optional PC/SC backend"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[features]
+default = []
+pcsc = ["dep:pcsc"]
+# Log response payloads in TracingTransport. Never enable for real cards in shared logs.
+trace-payload = []
+
+[dependencies]
+kye-apdu.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+pcsc = { workspace = true, optional = true }
+
+[lints]
+workspace = true

@@ -1,0 +1,29 @@
+[workspace]
+resolver = "3"
+members = ["crates/*", "tools/*"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85"
+license = "MIT OR Apache-2.0"
+publish = false
+
+[workspace.dependencies]
+kye-apdu = { path = "crates/kye-apdu" }
+kye-transport = { path = "crates/kye-transport" }
+kye-sm = { path = "crates/kye-sm" }
+kye-pace = { path = "crates/kye-pace" }
+kye-egk = { path = "crates/kye-egk" }
+
+thiserror = "2"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+pcsc = "2.9"
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+
+[workspace.lints.clippy]
+unwrap_used = "deny"
+expect_used = "deny"

@@ -1,0 +1,16 @@
+[package]
+name = "kye-egk"
+description = "eGK G2.1 object model, chunked reads and VSD parsing"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+kye-apdu.workspace = true
+kye-transport.workspace = true
+thiserror.workspace = true
+
+[lints]
+workspace = true
