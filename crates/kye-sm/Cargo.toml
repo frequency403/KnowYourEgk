@@ -11,6 +11,10 @@ publish.workspace = true
 kye-apdu.workspace = true
 kye-transport.workspace = true
 thiserror.workspace = true
+aes = "0.9"
+cmac = "0.8"
+subtle = "2"
+zeroize = { version = "1", features = ["derive"] }
 
 [lints]
 workspace = true

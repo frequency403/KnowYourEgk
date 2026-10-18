@@ -10,7 +10,13 @@ publish.workspace = true
 [dependencies]
 kye-apdu.workspace = true
 kye-transport.workspace = true
+kye-pace.workspace = true
+kye-sm.workspace = true
 thiserror.workspace = true
+
+[dev-dependencies]
+kye-transport = { workspace = true, features = ["pcsc"] }
+zeroize = "1"
 
 [lints]
 workspace = true

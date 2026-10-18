@@ -290,8 +290,11 @@ name = "kye-egk"
 version = "0.1.0"
 dependencies = [
  "kye-apdu",
+ "kye-pace",
+ "kye-sm",
  "kye-transport",
  "thiserror",
+ "zeroize",
 ]
 
 [[package]]
@@ -312,9 +315,13 @@ dependencies = [
 name = "kye-sm"
 version = "0.1.0"
 dependencies = [
+ "aes",
+ "cmac",
  "kye-apdu",
  "kye-transport",
+ "subtle",
  "thiserror",
+ "zeroize",
 ]
 
 [[package]]

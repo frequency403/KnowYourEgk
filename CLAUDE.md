@@ -36,6 +36,7 @@ cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
 cargo run -p m0-spike            # needs pcscd (Linux) and a reader; RUST_LOG=kye::apdu=debug for APDU trace
 KYE_CAN=<6 digits> cargo run -p m0-spike   # additionally runs full PACE on the CL slot (CAN only via env, never commit it)
+KYE_CAN=<6 digits> cargo test -p kye-egk --test hw_oracle -- --ignored --nocapture   # contact vs. CL byte comparison; prompts to move the card
 ```
 
 ## Normative Quellen
@@ -100,6 +101,8 @@ KYE_CAN=<6 digits> cargo run -p m0-spike   # additionally runs full PACE on the 
 - **Gesicherte Case-2/4-Commands (READ BINARY) als Case 4 Extended mit Le `00 00`.** Case 1/3 → Case 4 Short.
 - Response: `[87|81] || 99 02 SW || 8E 08 MAC`. MAC über `SSC || 87/81 || 99` prüfen, dann entschlüsseln.
 - Nach PACE **alle** APDUs über SM senden, auch SELECT. (Annahme; das Verhalten bei Plain-APDUs ist in der Spec nicht eindeutig geklärt.)
+- Mit echter eGK verifiziert (2026-10-18): SM-READ mit 256-Byte-Chunks (Response ~290 Byte, Case 4E) über CardMan 5121 CL. Header-only-MAC (Case 1) ist nur gegen den Simulator getestet.
+- EF.VD: `offEndVD` wird als inklusiv behandelt (Lesen bis `offEndVD + 1`); in M1 am gzip-Trailer prüfen.
 
 ## Plattform-Fallstricke
 
@@ -125,5 +128,5 @@ KYE_CAN=<6 digits> cargo run -p m0-spike   # additionally runs full PACE on the 
 | M0 ✅ | Spike: Reader-Enum beider Slots, ATR, Kontakt-Read StatusVD; CL: CardAccess, MSE, GA1, Extended-APDU-Test | `90 00` + 25 Byte; GA1 → `7C 12 80 10 …` |
 | M1 | Kontaktpfad komplett, Parser, egui-MVP | Daten korrekt angezeigt |
 | M2 ✅ | PACE | T_PICC verifiziert |
-| M3 | SM-Lesen kontaktlos | Byte-Vergleich mit Kontaktpfad grün |
+| M3 ✅ | SM-Lesen kontaktlos | Byte-Vergleich mit Kontaktpfad grün |
 | M4 | Fehlerpfade, Hot-Plug, CI-Matrix Win/Linux/macOS | Builds + manuelle Tests auf allen OS |
