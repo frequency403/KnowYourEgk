@@ -6,6 +6,7 @@ pub mod contactless;
 pub mod model;
 pub mod objects;
 pub mod read;
+pub mod session;
 pub mod status_vd;
 pub mod vsd;
 pub mod xml;
@@ -28,6 +29,8 @@ pub enum EgkError {
         command: &'static str,
         sw: kye_apdu::StatusWord,
     },
+    #[error("access requires PACE, but no CAN was given")]
+    CanRequired,
     #[error("file ended after {got} of {expected} bytes")]
     ShortFile { got: usize, expected: usize },
     #[error("malformed {file}: {reason}")]

@@ -5,14 +5,13 @@ use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
 use std::thread;
 use std::time::Duration;
 
-use kye_egk::contactless::open_secure_channel;
-use kye_egk::{EgkError, Vsd, read_raw_vsd};
+use kye_egk::session::{Step, read_vsd};
+use kye_egk::{EgkError, Vsd};
 use kye_pace::{PaceError, Password};
 use kye_transport::pcsc::PcscProvider;
 use kye_transport::{CardInterface, ReaderInfo, ReaderProvider, TransportError};
 
 const POLL: Duration = Duration::from_millis(500);
-const CHUNK: usize = 256;
 
 pub enum Request {
     Read {
@@ -31,6 +30,8 @@ pub enum Event {
 
 pub struct ReadOutcome {
     pub interface: CardInterface,
+    /// Read over PACE + secure messaging.
+    pub secured: bool,
     pub vsd: Vsd,
 }
 
@@ -43,6 +44,8 @@ pub enum ReadError {
     WrongCan,
     #[error("Die Karte wurde entfernt oder hat die Verbindung verloren.")]
     CardRemoved,
+    #[error("Der Kartenleser ist nicht mehr verfügbar.")]
+    ReaderGone,
     #[error("Keine Karte im Leser.")]
     NoCard,
     #[error("Die Karte unterstützt kein bekanntes PACE-Verfahren.")]
@@ -56,6 +59,9 @@ impl From<TransportError> for ReadError {
         match e {
             TransportError::CardRemoved => Self::CardRemoved,
             TransportError::NoCard => Self::NoCard,
+            TransportError::UnknownReader(_) | TransportError::ServiceUnavailable => {
+                Self::ReaderGone
+            }
             other => Self::Card(other.to_string()),
         }
     }
@@ -80,6 +86,7 @@ impl From<EgkError> for ReadError {
         match e {
             EgkError::Transport(t) => t.into(),
             EgkError::Pace(p) => p.into(),
+            EgkError::CanRequired => Self::CanRequired,
             other => Self::Card(other.to_string()),
         }
     }
@@ -110,37 +117,52 @@ fn run(requests: &Receiver<Request>, events: &Sender<Event>, notify: &dyn Fn()) 
         ok
     };
     let mut provider: Option<PcscProvider> = None;
-    let mut known: Option<Vec<ReaderInfo>> = None;
+    // Last state sent to the UI, so unchanged polls send nothing.
+    let mut shown: Option<Result<Vec<ReaderInfo>, String>> = None;
 
     loop {
         if provider.is_none() {
             match PcscProvider::new() {
                 Ok(p) => provider = Some(p),
+                // No service (e.g. Windows after the last reader was unplugged)
+                // simply means: no readers. Retry on the next poll.
+                Err(TransportError::ServiceUnavailable) => {}
                 Err(e) => {
-                    if !send(Event::Unavailable(e.to_string())) {
-                        return;
+                    let state = Err(e.to_string());
+                    if shown.as_ref() != Some(&state) {
+                        if !send(Event::Unavailable(e.to_string())) {
+                            return;
+                        }
+                        shown = Some(state);
                     }
                 }
             }
         }
 
-        if let Some(p) = &provider {
-            match p.readers() {
-                Ok(readers) if known.as_ref() != Some(&readers) => {
-                    known = Some(readers.clone());
-                    if !send(Event::Readers(readers)) {
-                        return;
-                    }
-                }
-                Ok(_) => {}
-                Err(e) => {
-                    // The context may become invalid (service restart); re-establish it.
+        let readers = match &provider {
+            Some(p) => match p.readers() {
+                Ok(r) => Some(r),
+                // A reader vanished between listing and querying it: transient
+                // during hot-plug, try again on the next poll.
+                Err(TransportError::UnknownReader(_) | TransportError::Timeout) => None,
+                // Context became invalid (service stopped/restarted): re-establish.
+                Err(_) => {
                     provider = None;
-                    known = None;
-                    if !send(Event::Unavailable(e.to_string())) {
-                        return;
-                    }
+                    Some(Vec::new())
                 }
+            },
+            None if !matches!(shown, Some(Err(_))) => Some(Vec::new()),
+            None => None,
+        };
+        if let Some(r) = readers {
+            let state = Ok(r);
+            if shown.as_ref() != Some(&state) {
+                if let Ok(r) = &state
+                    && !send(Event::Readers(r.clone()))
+                {
+                    return;
+                }
+                shown = Some(state);
             }
         }
 
@@ -173,34 +195,23 @@ fn read(
     let interface = kye_transport::CardTransport::interface(&card);
     let mut tx = card.transaction()?;
 
-    let raw = match interface {
-        CardInterface::Contactless => {
-            let can = can.ok_or(ReadError::CanRequired)?;
-            progress("PACE mit CAN …");
-            let mut sm = open_secure_channel(&mut tx, can)?;
-            progress("Lese Versichertendaten (verschlüsselt) …");
-            read_raw_vsd(&mut sm, CHUNK)?
-        }
-        _ => {
-            progress("Lese Versichertendaten …");
-            match read_raw_vsd(&mut tx, CHUNK) {
-                // Fallback: access requires PACE although the ATR said contact.
-                Err(EgkError::Status { sw, .. })
-                    if sw == kye_apdu::StatusWord::SECURITY_STATUS_NOT_SATISFIED =>
-                {
-                    let can = can.ok_or(ReadError::CanRequired)?;
-                    progress("PACE mit CAN …");
-                    let mut sm = open_secure_channel(&mut tx, can)?;
-                    read_raw_vsd(&mut sm, CHUNK)?
-                }
-                other => other?,
-            }
-        }
-    };
-    // Reset the card so no security state outlives this read.
-    tx.end(true)?;
+    let result = read_vsd(&mut tx, can, &mut |step| {
+        progress(match step {
+            Step::Reading => "Lese Versichertendaten …",
+            Step::Pace => "PACE mit CAN …",
+            Step::ReadingSecure => "Lese Versichertendaten (verschlüsselt) …",
+        })
+    });
+    // Reset the card so no security state outlives this read, also on errors.
+    let ended = tx.end(true);
+    let result = result?;
+    ended?;
 
     progress("Werte Daten aus …");
-    let vsd = Vsd::parse(&raw)?;
-    Ok(ReadOutcome { interface, vsd })
+    let vsd = Vsd::parse(&result.raw)?;
+    Ok(ReadOutcome {
+        interface,
+        secured: result.secured,
+        vsd,
+    })
 }

@@ -93,7 +93,7 @@ impl std::fmt::Debug for Password {
 
 /// Decrypts the encrypted nonce: `s = AES-CBC-DEC(K_π, z)` with a zero IV.
 pub fn decrypt_nonce(k_pi: &[u8; 16], z: &[u8]) -> Result<Zeroizing<Vec<u8>>, PaceError> {
-    if z.is_empty() || z.len() % 16 != 0 {
+    if z.is_empty() || !z.len().is_multiple_of(16) {
         return Err(PaceError::GaResponse("encrypted nonce has invalid length"));
     }
     let cipher = Aes128::new(&Array::from(*k_pi));

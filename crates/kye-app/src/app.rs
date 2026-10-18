@@ -143,8 +143,9 @@ impl App {
             Some(Ok(outcome)) => {
                 ui.horizontal(|ui| {
                     ui.heading("Versichertenstammdaten");
-                    ui.label(match outcome.interface {
-                        CardInterface::Contactless => "· kontaktlos gelesen",
+                    ui.label(match (outcome.interface, outcome.secured) {
+                        (CardInterface::Contactless, _) => "· kontaktlos gelesen (PACE)",
+                        (_, true) => "· kontaktbehaftet gelesen (PACE)",
                         _ => "· kontaktbehaftet gelesen",
                     });
                     if ui.button("Daten verwerfen").clicked() {

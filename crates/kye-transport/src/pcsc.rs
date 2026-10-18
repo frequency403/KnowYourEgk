@@ -23,6 +23,9 @@ impl From<pcsc::Error> for TransportError {
             pcsc::Error::UnknownReader | pcsc::Error::ReaderUnavailable => {
                 Self::UnknownReader(e.to_string())
             }
+            // Windows stops the smart card service when the last reader is
+            // unplugged; pcsc-lite may be socket-activated and not running yet.
+            pcsc::Error::NoService | pcsc::Error::ServiceStopped => Self::ServiceUnavailable,
             other => Self::Backend(other.to_string()),
         }
     }
@@ -44,41 +47,6 @@ impl PcscProvider {
         match self.ctx.list_readers_owned() {
             Ok(names) => Ok(names),
             Err(pcsc::Error::NoReadersAvailable) => Ok(Vec::new()),
-            Err(e) => Err(e.into()),
-        }
-    }
-
-    /// Blocks until the state of any reader changes or `timeout` elapses.
-    ///
-    /// Returns `true` if something changed. This monitors all slots (contact
-    /// and contactless) at once.
-    pub fn wait_for_change(
-        &self,
-        known: &[ReaderInfo],
-        timeout: Duration,
-    ) -> Result<bool, TransportError> {
-        let mut states = Vec::with_capacity(known.len() + 1);
-        states.push(ReaderState::new(pcsc::PNP_NOTIFICATION(), State::UNAWARE));
-        for r in known {
-            let name = CString::new(r.name.as_str())
-                .map_err(|_| TransportError::UnknownReader(r.name.clone()))?;
-            let state = if r.atr.is_some() {
-                State::PRESENT
-            } else {
-                State::EMPTY
-            };
-            states.push(ReaderState::new(name, state));
-        }
-        // Prime the PnP entry so it only reports real reader add/remove events.
-        self.ctx
-            .get_status_change(Duration::ZERO, &mut states[..1])
-            .ok();
-        for s in &mut states[..1] {
-            s.sync_current_state();
-        }
-        match self.ctx.get_status_change(timeout, &mut states) {
-            Ok(()) => Ok(true),
-            Err(pcsc::Error::Timeout) => Ok(false),
             Err(e) => Err(e.into()),
         }
     }

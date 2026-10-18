@@ -63,7 +63,7 @@ pub fn parse_encrypted_nonce(rsp: &Response) -> Result<Vec<u8>, PaceError> {
     let objects = ga_response_objects("GA1 (encrypted nonce)", rsp)?;
     let nonce = tlv::find(objects, TAG_ENCRYPTED_NONCE)?
         .ok_or(PaceError::GaResponse("missing encrypted nonce (80)"))?;
-    if nonce.value.is_empty() || nonce.value.len() % 16 != 0 {
+    if nonce.value.is_empty() || !nonce.value.len().is_multiple_of(16) {
         return Err(PaceError::GaResponse(
             "encrypted nonce is not a multiple of the AES block size",
         ));

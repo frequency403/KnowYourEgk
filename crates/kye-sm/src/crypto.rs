@@ -9,7 +9,7 @@ pub fn pad(data: &[u8]) -> Vec<u8> {
     let mut out = Vec::with_capacity(data.len() + 16);
     out.extend_from_slice(data);
     out.push(0x80);
-    while out.len() % 16 != 0 {
+    while !out.len().is_multiple_of(16) {
         out.push(0x00);
     }
     out
@@ -31,7 +31,7 @@ pub fn iv_from_ssc(k_enc: &[u8; 16], ssc: &[u8; 16]) -> [u8; 16] {
 
 /// AES-128-CBC encryption of block-aligned data.
 pub fn cbc_encrypt(key: &[u8; 16], iv: &[u8; 16], data: &[u8]) -> Vec<u8> {
-    debug_assert_eq!(data.len() % 16, 0);
+    debug_assert!(data.len().is_multiple_of(16));
     let cipher = Aes128::new(&Array::from(*key));
     let mut prev = *iv;
     let mut out = Vec::with_capacity(data.len());

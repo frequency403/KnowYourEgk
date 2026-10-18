@@ -29,16 +29,16 @@ pub fn read_card_access<T: CardTransport + ?Sized>(t: &mut T) -> Result<Vec<u8>,
 /// Runs PACE with `password` and returns a secure channel over `t`.
 ///
 /// After this call every APDU, including SELECT, must go through the channel.
-pub fn open_secure_channel<T: CardTransport>(
-    mut t: T,
+pub fn open_secure_channel<'a, T: CardTransport + ?Sized>(
+    t: &'a mut T,
     password: &Password,
-) -> Result<SecureChannel<T>, EgkError> {
-    let raw = read_card_access(&mut t)?;
+) -> Result<SecureChannel<&'a mut T>, EgkError> {
+    let raw = read_card_access(t)?;
     let card_access = CardAccess::parse(&raw)?;
     let info = card_access
         .find_pace(PaceProtocol::ECDH_GM_AES_128)
         .ok_or(kye_pace::PaceError::Unsupported)?;
-    let session = kye_pace::establish(&mut t, info, password)?;
+    let session = kye_pace::establish(t, info, password)?;
     Ok(SecureChannel::new(
         t,
         &session.keys.k_enc,

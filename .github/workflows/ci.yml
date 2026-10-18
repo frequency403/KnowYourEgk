@@ -1,0 +1,57 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+env:
+  CARGO_TERM_COLOR: always
+  RUSTFLAGS: -D warnings
+
+jobs:
+  fmt:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - run: cargo fmt --all --check
+
+  build:
+    name: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - name: Install PC/SC headers (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libpcsclite-dev pkg-config
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
+      # Hardware tests are #[ignore]d and need a real card.
+      - run: cargo test --workspace --locked
+      - run: cargo build --release --locked -p kye-app
+      - uses: actions/upload-artifact@v4
+        with:
+          name: knowyouregk-${{ runner.os }}
+          path: |
+            target/release/knowyouregk
+            target/release/knowyouregk.exe
+          if-no-files-found: error
+
+  msrv:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.92
+      - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libpcsclite-dev pkg-config
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo check --workspace --all-targets --locked

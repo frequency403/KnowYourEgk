@@ -24,6 +24,8 @@ pub enum TransportError {
     CardRemoved,
     #[error("reader not found: {0}")]
     UnknownReader(String),
+    #[error("smart card service not available")]
+    ServiceUnavailable,
     #[error("transport timeout")]
     Timeout,
     #[error(transparent)]

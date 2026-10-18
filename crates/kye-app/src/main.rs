@@ -1,3 +1,5 @@
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+
 //! KnowYourEgk: reads the insurance master data (VSD) of a German eGK G2.1,
 //! inserted (contact) or placed on the reader (contactless, PACE with CAN).
 

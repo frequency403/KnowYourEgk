@@ -192,7 +192,7 @@ impl<T: CardTransport> SecureChannel<T> {
                     .ok_or(SmError::Malformed("empty DO87"))?;
                 if indicator != PADDING_INDICATOR
                     || cryptogram.is_empty()
-                    || cryptogram.len() % 16 != 0
+                    || !cryptogram.len().is_multiple_of(16)
                 {
                     return Err(SmError::Malformed("bad DO87 cryptogram"));
                 }

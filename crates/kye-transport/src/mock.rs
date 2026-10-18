@@ -15,6 +15,8 @@ enum Reply {
 #[derive(Debug, Clone)]
 struct Exchange {
     command: Vec<u8>,
+    /// Match only the leading bytes (for commands with random content).
+    prefix: bool,
     reply: Reply,
 }
 
@@ -39,6 +41,21 @@ impl MockTransport {
     pub fn expect(mut self, command: impl Into<Vec<u8>>, response: impl Into<Vec<u8>>) -> Self {
         self.script.push_back(Exchange {
             command: command.into(),
+            prefix: false,
+            reply: Reply::Bytes(response.into()),
+        });
+        self
+    }
+
+    /// Expects a command starting with `prefix` and answers with `response`.
+    pub fn expect_prefix(
+        mut self,
+        prefix: impl Into<Vec<u8>>,
+        response: impl Into<Vec<u8>>,
+    ) -> Self {
+        self.script.push_back(Exchange {
+            command: prefix.into(),
+            prefix: true,
             reply: Reply::Bytes(response.into()),
         });
         self
@@ -48,6 +65,7 @@ impl MockTransport {
     pub fn expect_removed(mut self, command: impl Into<Vec<u8>>) -> Self {
         self.script.push_back(Exchange {
             command: command.into(),
+            prefix: false,
             reply: Reply::Removed,
         });
         self
@@ -65,7 +83,12 @@ impl CardTransport for MockTransport {
         let ex = self.script.pop_front().ok_or_else(|| {
             TransportError::Protocol(format!("unexpected command {}", Hex(&bytes)))
         })?;
-        if ex.command != bytes {
+        let matches = if ex.prefix {
+            bytes.starts_with(&ex.command)
+        } else {
+            ex.command == bytes
+        };
+        if !matches {
             return Err(TransportError::Protocol(format!(
                 "expected {}, got {}",
                 Hex(&ex.command),
