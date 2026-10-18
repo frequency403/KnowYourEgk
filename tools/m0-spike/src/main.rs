@@ -4,6 +4,7 @@
 //! - contact: SELECT DF.HCA, READ BINARY EF.StatusVD -> `90 00` + 25 bytes
 //! - contactless: EF.CardAccess, plain StatusVD (expect `69 82`), MSE:Set AT,
 //!   GA1 -> `7C 12 80 10 ..`, extended APDUs (case 2E and 4E)
+//! - contactless, if `KYE_CAN` is set: full PACE run, T_PICC verified (M2)
 //!
 //! Prints only non-personal data (ATR, EF.CardAccess, StatusVD metadata).
 //! Set `RUST_LOG=kye::apdu=debug` to trace APDU headers and status words.
@@ -16,7 +17,7 @@ use kye_egk::commands::{read_binary, read_binary_sfi, select_df_hca, select_mf};
 use kye_egk::objects::{EF_CARD_ACCESS, EF_STATUS_VD};
 use kye_egk::status_vd::STATUS_VD_LEN;
 use kye_pace::apdu::{PasswordRef, ga_get_nonce, mse_set_at_pace, parse_encrypted_nonce};
-use kye_pace::{CardAccess, PaceInfo, PaceProtocol, StandardizedDomainParameters};
+use kye_pace::{CardAccess, PaceInfo, PaceProtocol, Password, StandardizedDomainParameters};
 use kye_transport::pcsc::PcscProvider;
 use kye_transport::{CardInterface, CardTransport, ReaderProvider, TracingTransport};
 
@@ -263,11 +264,30 @@ fn contactless(provider: &PcscProvider, reader: &str, report: &mut Report) -> Re
             },
             Err(e) => report.fail("CL extended APDU (case 4E)", e.to_string()),
         }
+
+        // 6. Full PACE with the CAN (M2). The CAN is only read from the
+        //    environment and never stored.
+        match can_from_env() {
+            Some(Ok(password)) => match kye_pace::establish(&mut t, pace, &password) {
+                Ok(session) => report.pass(
+                    "CL PACE (CAN)",
+                    format!("T_PICC verified, {:?}", session.keys),
+                ),
+                Err(e) => report.fail("CL PACE (CAN)", e.to_string()),
+            },
+            Some(Err(e)) => report.fail("CL PACE (CAN)", e.to_string()),
+            None => println!("  Note: KYE_CAN not set, PACE skipped."),
+        }
     }
     // Reset the card so the half-finished PACE run leaves no state behind.
     tx.end(true)?;
     card.disconnect_reset()?;
     Ok(())
+}
+
+fn can_from_env() -> Option<Result<Password, kye_pace::PaceError>> {
+    let can = zeroize::Zeroizing::new(std::env::var("KYE_CAN").ok()?);
+    Some(Password::can(&can))
 }
 
 fn select_pace_info<'a>(ca: &'a CardAccess, report: &mut Report) -> Result<&'a PaceInfo, BoxError> {

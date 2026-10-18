@@ -23,7 +23,7 @@ crates/
   kye-egk        # eGK object model, chunked reads, VSD parsing
   kye-app        # eframe/egui; card I/O on a worker thread, UI via channels
 tools/
-  m0-spike       # M0 hardware spike (CLI), see "Befehle"
+  m0-spike       # hardware spike (CLI): M0 checks + PACE (M2), see "Befehle"
 ```
 
 Kartenzugriff blockierend im Worker-Thread, kein async.
@@ -34,7 +34,8 @@ Kartenzugriff blockierend im Worker-Thread, kein async.
 cargo fmt --all
 cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
-cargo run -p m0-spike            # needs pcscd (Linux) and a reader; RUST_LOG=debug for APDU trace
+cargo run -p m0-spike            # needs pcscd (Linux) and a reader; RUST_LOG=kye::apdu=debug for APDU trace
+KYE_CAN=<6 digits> cargo run -p m0-spike   # additionally runs full PACE on the CL slot (CAN only via env, never commit it)
 ```
 
 ## Normative Quellen
@@ -123,6 +124,6 @@ cargo run -p m0-spike            # needs pcscd (Linux) and a reader; RUST_LOG=de
 |---|---|---|
 | M0 ✅ | Spike: Reader-Enum beider Slots, ATR, Kontakt-Read StatusVD; CL: CardAccess, MSE, GA1, Extended-APDU-Test | `90 00` + 25 Byte; GA1 → `7C 12 80 10 …` |
 | M1 | Kontaktpfad komplett, Parser, egui-MVP | Daten korrekt angezeigt |
-| M2 | PACE | T_PICC verifiziert |
+| M2 ✅ | PACE | T_PICC verifiziert |
 | M3 | SM-Lesen kontaktlos | Byte-Vergleich mit Kontaktpfad grün |
 | M4 | Fehlerpfade, Hot-Plug, CI-Matrix Win/Linux/macOS | Builds + manuelle Tests auf allen OS |
