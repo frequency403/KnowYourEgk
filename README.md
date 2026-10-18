@@ -93,30 +93,32 @@ Windows). You can also start it directly with `cargo run --release -p kye-app`.
    up as two slots (contact and contactless). Readers can be plugged in and
    out while the app is running.
 2. **Contact:** insert the card chip first, as marked on the reader. The slot
-   shows *Karte gesteckt (kontaktbehaftet)*. Click **Lesen** (Read).
+   shows *Card inserted (contact)*. Click **Read**.
 3. **Contactless:**
    1. Type the **CAN** into the CAN field: the six-digit number on the
       **front** of the card (top right). It is not your PIN.
    2. Place the card flat on the reader and leave it there. The slot shows
-      *Karte aufgelegt (kontaktlos)*.
-   3. Click **Lesen**. Setting up the encrypted channel takes about
+      *Card on reader (contactless)*.
+   3. Click **Read**. Setting up the encrypted channel takes about
       two seconds. Do not move the card until the data is shown.
-4. Your data appears on the right. Expand *Alle Felder (Rohdaten)* to see
-   every stored field. **Daten verwerfen** (discard data) clears the view.
+4. Your data appears on the right. Expand *All fields (raw data)* to see
+   every stored field. **Discard data** clears the view.
    Nothing is kept after you close the app.
 
-The interface is currently in German, as the card and its data are German.
+The interface is available in **English** (default) and **German**. It
+follows your system language and can be switched at the bottom of the left
+panel.
 
 ### Messages
 
 | Message | Meaning / what to do |
 |---|---|
-| *Für kontaktloses Lesen wird die 6-stellige CAN benötigt.* | Enter the CAN before reading contactlessly. |
-| *Die CAN ist falsch …* | The card rejected the CAN. Check the number on the front of the card. |
-| *Die Karte wurde entfernt oder hat die Verbindung verloren.* | The card was moved or removed during the read. Put it back and click *Lesen* again. |
-| *Der Kartenleser ist nicht mehr verfügbar.* | The reader was unplugged. Reconnect it. |
-| *Die letzte Aktualisierung der Versichertendaten wurde nicht abgeschlossen.* | The card says its last online update was interrupted, so the data may be incomplete. Your doctor's practice can update the card. |
-| *PC/SC nicht verfügbar* | The smart card service is not reachable (Linux: start `pcscd`). |
+| *The 6-digit CAN is required for contactless reading.* | Enter the CAN before reading contactlessly. |
+| *The CAN is wrong …* | The card rejected the CAN. Check the number on the front of the card. |
+| *The card was removed or lost the connection.* | The card was moved or removed during the read. Put it back and click *Read* again. |
+| *The card reader is no longer available.* | The reader was unplugged. Reconnect it. |
+| *The last update of the insurance data did not complete …* | The card says its last online update was interrupted, so the data may be incomplete. Your doctor's practice can update the card. |
+| *Smart card service (PC/SC) not available* | The smart card service is not reachable (Linux: start `pcscd`). |
 
 ## Troubleshooting
 
@@ -159,6 +161,15 @@ VSD requires PACE with the CAN. All following commands, `SELECT` included,
 are wrapped in secure messaging. The implementation follows gemSpec_COS,
 gemSpec_eGK_ObjSys_G2.1 and gemSpec_eGK_Fach_VSDM by gematik and ICAO
 Doc 9303 Part 11.
+
+### Translations
+
+All UI texts live in [Fluent](https://projectfluent.org) files in
+[`crates/kye-app/i18n/`](crates/kye-app/i18n): `en.ftl` (default and
+fallback) and `de.ftl`. To add a language, copy `en.ftl` to `<code>.ftl`,
+translate the values, and register it in `Lang` in
+[`crates/kye-app/src/i18n.rs`](crates/kye-app/src/i18n.rs). The tests fail
+if a language misses a message or if the UI uses an unknown one.
 
 ### Releases
 

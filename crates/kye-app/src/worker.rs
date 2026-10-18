@@ -20,9 +20,20 @@ pub enum Request {
     },
 }
 
+/// Steps of a read, translated by the UI.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Progress {
+    Starting,
+    Connecting,
+    Reading,
+    Pace,
+    ReadingSecure,
+    Parsing,
+}
+
 pub enum Event {
     Readers(Vec<ReaderInfo>),
-    Progress(&'static str),
+    Progress(Progress),
     Finished(Box<Result<ReadOutcome, ReadError>>),
     /// PC/SC is unavailable (no service, no permission); the worker retries.
     Unavailable(String),
@@ -35,22 +46,25 @@ pub struct ReadOutcome {
     pub vsd: Vsd,
 }
 
-/// Read failures, phrased for the user.
+/// Read failures. The UI shows them translated; `Display` is for logs.
 #[derive(Debug, thiserror::Error)]
 pub enum ReadError {
-    #[error("Für kontaktloses Lesen wird die 6-stellige CAN benötigt.")]
+    #[error("CAN required")]
     CanRequired,
-    #[error("Die CAN ist falsch. Bitte mit der Nummer auf der Kartenvorderseite vergleichen.")]
+    #[error("wrong CAN")]
     WrongCan,
-    #[error("Die Karte wurde entfernt oder hat die Verbindung verloren.")]
+    #[error("card removed")]
     CardRemoved,
-    #[error("Der Kartenleser ist nicht mehr verfügbar.")]
+    #[error("reader gone")]
     ReaderGone,
-    #[error("Keine Karte im Leser.")]
+    #[error("no card")]
     NoCard,
-    #[error("Die Karte unterstützt kein bekanntes PACE-Verfahren.")]
+    #[error("no supported PACE protocol")]
     Unsupported,
-    #[error("Kartenfehler: {0}")]
+    #[error("PC/SC service unavailable")]
+    ServiceUnavailable,
+    /// Technical detail from the lower layers, not translated.
+    #[error("card error: {0}")]
     Card(String),
 }
 
@@ -172,7 +186,7 @@ fn run(requests: &Receiver<Request>, events: &Sender<Event>, notify: &dyn Fn()) 
                     Some(p) => read(p, &reader, can.as_ref(), &|s| {
                         send(Event::Progress(s));
                     }),
-                    None => Err(ReadError::Card("PC/SC nicht verfügbar".into())),
+                    None => Err(ReadError::ServiceUnavailable),
                 };
                 if !send(Event::Finished(Box::new(result))) {
                     return;
@@ -188,18 +202,18 @@ fn read(
     provider: &PcscProvider,
     reader: &str,
     can: Option<&Password>,
-    progress: &dyn Fn(&'static str),
+    progress: &dyn Fn(Progress),
 ) -> Result<ReadOutcome, ReadError> {
-    progress("Verbinde mit der Karte …");
+    progress(Progress::Connecting);
     let mut card = provider.connect(reader)?;
     let interface = kye_transport::CardTransport::interface(&card);
     let mut tx = card.transaction()?;
 
     let result = read_vsd(&mut tx, can, &mut |step| {
         progress(match step {
-            Step::Reading => "Lese Versichertendaten …",
-            Step::Pace => "PACE mit CAN …",
-            Step::ReadingSecure => "Lese Versichertendaten (verschlüsselt) …",
+            Step::Reading => Progress::Reading,
+            Step::Pace => Progress::Pace,
+            Step::ReadingSecure => Progress::ReadingSecure,
         })
     });
     // Reset the card so no security state outlives this read, also on errors.
@@ -207,7 +221,7 @@ fn read(
     let result = result?;
     ended?;
 
-    progress("Werte Daten aus …");
+    progress(Progress::Parsing);
     let vsd = Vsd::parse(&result.raw)?;
     Ok(ReadOutcome {
         interface,

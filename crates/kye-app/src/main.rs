@@ -4,6 +4,7 @@
 //! inserted (contact) or placed on the reader (contactless, PACE with CAN).
 
 mod app;
+mod i18n;
 mod worker;
 
 fn main() -> eframe::Result {

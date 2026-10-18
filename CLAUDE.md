@@ -10,6 +10,7 @@ Rust/egui-Desktop-App, die die Versichertenstammdaten (VSD) einer eGK G2.1 ausli
 
 - Code-Kommentare auf Englisch, Rust-Standardkonventionen (`rustfmt`, `clippy -D warnings`).
 - Keine `unwrap()`/`expect()` außerhalb von Tests. Fehler über `thiserror`.
+- Alle UI-Texte über Fluent (`crates/kye-app/i18n/*.ftl`, Zugriff `I18n::t`/`t_with`), Standard und Fallback Englisch. Keine String-Literale für Nutzertexte im UI-Code; Tests prüfen Vollständigkeit aller Sprachen sowie fehlende und ungenutzte Schlüssel.
 - Schlüsselmaterial (K_π, K_enc, K_mac, CAN) mit `zeroize`. CAN niemals persistieren.
 
 ## Workspace
