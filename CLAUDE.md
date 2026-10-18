@@ -128,7 +128,7 @@ KYE_CAN=<6 digits> cargo test -p kye-egk --test hw_oracle -- --ignored --nocaptu
 | | Inhalt | Abnahme |
 |---|---|---|
 | M0 ✅ | Spike: Reader-Enum beider Slots, ATR, Kontakt-Read StatusVD; CL: CardAccess, MSE, GA1, Extended-APDU-Test | `90 00` + 25 Byte; GA1 → `7C 12 80 10 …` |
-| M1 | Kontaktpfad komplett, Parser, egui-MVP | Daten korrekt angezeigt |
+| M1 ✅ | Kontaktpfad komplett, Parser, egui-MVP | Daten korrekt angezeigt |
 | M2 ✅ | PACE | T_PICC verifiziert |
 | M3 ✅ | SM-Lesen kontaktlos | Byte-Vergleich mit Kontaktpfad grün |
 | M4 | Fehlerpfade, Hot-Plug, CI-Matrix Win/Linux/macOS | Builds + manuelle Tests auf allen OS |
