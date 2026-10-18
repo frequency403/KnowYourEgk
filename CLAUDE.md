@@ -103,7 +103,8 @@ cargo run -p m0-spike            # needs pcscd (Linux) and a reader; RUST_LOG=de
 ## Plattform-Fallstricke
 
 - PACE + Lesen in `SCardBeginTransaction`/`EndTransaction` mit `ShareMode::Exclusive` kapseln, weil Windows Smart Card PnP Fremd-APDUs schickt.
-- Extended APDU auf dem CL-Slot ist für das konkrete Modell unverifiziert → im Spike testen.
+- Extended APDU auf dem CL-Slot: mit OMNIKEY CardMan 5121 (076B:5121) unter Linux/pcsc-lite verifiziert (Case 2E und 4E, M0-Spike 2026-10-18). Windows/macOS noch offen.
+- Der CL-Pseudo-ATR dieser eGK ist `3B 80 80 01 01`.
 
 ## Datenschutz
 
@@ -120,7 +121,7 @@ cargo run -p m0-spike            # needs pcscd (Linux) and a reader; RUST_LOG=de
 
 | | Inhalt | Abnahme |
 |---|---|---|
-| M0 | Spike: Reader-Enum beider Slots, ATR, Kontakt-Read StatusVD; CL: CardAccess, MSE, GA1, Extended-APDU-Test | `90 00` + 25 Byte; GA1 → `7C 12 80 10 …` |
+| M0 ✅ | Spike: Reader-Enum beider Slots, ATR, Kontakt-Read StatusVD; CL: CardAccess, MSE, GA1, Extended-APDU-Test | `90 00` + 25 Byte; GA1 → `7C 12 80 10 …` |
 | M1 | Kontaktpfad komplett, Parser, egui-MVP | Daten korrekt angezeigt |
 | M2 | PACE | T_PICC verifiziert |
 | M3 | SM-Lesen kontaktlos | Byte-Vergleich mit Kontaktpfad grün |
