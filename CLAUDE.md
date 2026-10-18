@@ -41,6 +41,12 @@ KYE_CAN=<6 digits> cargo run -p m0-spike   # additionally runs full PACE on the 
 KYE_CAN=<6 digits> cargo test -p kye-egk --test hw_oracle -- --ignored --nocapture   # contact vs. CL byte comparison; prompts to move the card
 ```
 
+## Releases
+
+- `.github/workflows/tag.yml`: nach grüner CI auf `main` → Version aus `[workspace.package]` lesen → fehlt Tag `vX.Y.Z`, wird er angelegt und `release.yml` per `workflow_dispatch` gestartet. Tag-Pushes mit `GITHUB_TOKEN` triggern keine Workflows, deshalb der Dispatch.
+- `.github/workflows/release.yml`: nimmt die Artefakte des grünen CI-Runs genau dieses Commits (kein Rebuild), packt sie mit README/Lizenzen, schreibt SHA256SUMS und den Changelog (`.github/scripts/changelog.sh`, Commits seit dem letzten Tag).
+- Release = Version in `Cargo.toml` erhöhen und nach `main` mergen.
+
 ## Normative Quellen
 
 - gemSpec_eGK_ObjSys_G2.1 – Zugriffsregeln, FIDs/SFIs

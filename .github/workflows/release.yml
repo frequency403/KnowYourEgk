@@ -1,0 +1,116 @@
+name: Release
+
+# Builds a GitHub release for a vX.Y.Z tag from the artifacts of the green
+# CI run of the tagged commit (no rebuild), with a changelog generated from
+# the commits since the previous release tag.
+#
+# Started by the "Tag release" workflow, by pushing a tag manually, or by hand.
+
+on:
+  push:
+    tags: ['v[0-9]+.[0-9]+.[0-9]+']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag (vX.Y.Z)
+        required: true
+      ci_run_id:
+        description: "CI run ID to take the artifacts from (default: latest green CI run of the tagged commit)"
+        required: false
+
+permissions:
+  contents: write
+  actions: read
+
+concurrency:
+  group: release-${{ inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    env:
+      TAG: ${{ inputs.tag || github.ref_name }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+          fetch-depth: 0
+
+      - name: Validate tag
+        run: |
+          [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "::error::'$TAG' is not vX.Y.Z"; exit 1; }
+          git rev-parse -q --verify "refs/tags/$TAG" > /dev/null || { echo "::error::tag $TAG not found"; exit 1; }
+          version=$(python3 -c 'import tomllib; print(tomllib.load(open("Cargo.toml", "rb"))["workspace"]["package"]["version"])')
+          [[ "v$version" == "$TAG" ]] || { echo "::error::Cargo.toml says $version, tag is $TAG"; exit 1; }
+          if gh release view "$TAG" > /dev/null 2>&1; then
+            echo "::error::release $TAG already exists"
+            exit 1
+          fi
+
+      - name: Find CI run of the tagged commit
+        id: ci
+        env:
+          CI_RUN_ID: ${{ inputs.ci_run_id }}
+        run: |
+          sha=$(git rev-list -n 1 "$TAG")
+          if [[ -z "$CI_RUN_ID" ]]; then
+            CI_RUN_ID=$(gh run list --workflow ci.yml --commit "$sha" --status success \
+              --json databaseId --jq '.[0].databaseId // empty')
+          fi
+          [[ -n "$CI_RUN_ID" ]] || { echo "::error::no successful CI run for $sha"; exit 1; }
+          run_sha=$(gh run view "$CI_RUN_ID" --json headSha --jq .headSha)
+          [[ "$run_sha" == "$sha" ]] || { echo "::error::CI run $CI_RUN_ID is for $run_sha, tag is $sha"; exit 1; }
+          echo "id=$CI_RUN_ID" >> "$GITHUB_OUTPUT"
+          echo "Using CI run $CI_RUN_ID for $sha"
+
+      - name: Download CI artifacts
+        env:
+          CI_RUN_ID: ${{ steps.ci.outputs.id }}
+        run: gh run download "$CI_RUN_ID" --pattern 'knowyouregk-*' --dir artifacts
+
+      - name: Package
+        run: |
+          mkdir dist
+          docs=(README.md LICENSE-MIT LICENSE-APACHE)
+          package() { # <artifact dir> <binary> <platform> <format>
+            local name="knowyouregk-$TAG-$3" stage
+            stage=$(mktemp -d)/"$name"
+            mkdir -p "$stage"
+            cp "artifacts/$1/$2" "${docs[@]}" "$stage/"
+            # Artifacts do not preserve the executable bit.
+            chmod +x "$stage/$2"
+            if [[ "$4" == zip ]]; then
+              (cd "$(dirname "$stage")" && python3 -m zipfile -c "$GITHUB_WORKSPACE/dist/$name.zip" "$name")
+            else
+              tar -C "$(dirname "$stage")" -czf "dist/$name.tar.gz" "$name"
+            fi
+          }
+          package knowyouregk-Linux   knowyouregk     linux-x86_64   tar
+          package knowyouregk-Windows knowyouregk.exe windows-x86_64 zip
+          package knowyouregk-macOS   knowyouregk     macos-aarch64  tar
+          (cd dist && sha256sum -- * > SHA256SUMS.txt)
+          ls -l dist
+
+      - name: Changelog
+        env:
+          CI_RUN_ID: ${{ steps.ci.outputs.id }}
+        run: |
+          {
+            .github/scripts/changelog.sh "$TAG" "$GITHUB_REPOSITORY"
+            echo "## Downloads"
+            echo
+            echo "| Platform | File |"
+            echo "|---|---|"
+            echo "| Linux x86_64 | \`knowyouregk-$TAG-linux-x86_64.tar.gz\` |"
+            echo "| Windows x86_64 | \`knowyouregk-$TAG-windows-x86_64.zip\` |"
+            echo "| macOS Apple Silicon | \`knowyouregk-$TAG-macos-aarch64.tar.gz\` (unsigned: right-click → Open) |"
+            echo
+            echo "Linux needs \`pcscd\` and the CCID driver; see the README for setup and usage."
+            echo "Binaries come from [CI run $CI_RUN_ID]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$CI_RUN_ID); checksums are in \`SHA256SUMS.txt\`."
+          } > notes.md
+          cat notes.md
+
+      - name: Create release
+        run: gh release create "$TAG" dist/* --title "KnowYourEgk $TAG" --notes-file notes.md --verify-tag

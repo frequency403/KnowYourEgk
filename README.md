@@ -54,10 +54,17 @@ anything that writes to the card.
 
 ### Prebuilt binaries
 
-Every CI run on `main` builds release binaries for Linux, Windows and macOS.
-You can download them as artifacts (`knowyouregk-Linux`,
-`knowyouregk-Windows`, `knowyouregk-macOS`) from the
-[Actions page](https://github.com/frequency403/KnowYourEgk/actions).
+Download the archive for your platform from the
+[latest release](https://github.com/frequency403/KnowYourEgk/releases/latest),
+unpack it and start `knowyouregk` (`knowyouregk.exe` on Windows):
+
+| Platform | File |
+|---|---|
+| Linux x86_64 | `knowyouregk-vX.Y.Z-linux-x86_64.tar.gz` |
+| Windows x86_64 | `knowyouregk-vX.Y.Z-windows-x86_64.zip` |
+| macOS Apple Silicon | `knowyouregk-vX.Y.Z-macos-aarch64.tar.gz` |
+
+`SHA256SUMS.txt` in each release lists the checksums.
 
 > The macOS binary is not signed. On first start, right-click it and choose
 > *Open*, or allow it under *System Settings → Privacy & Security*.
@@ -152,6 +159,16 @@ VSD requires PACE with the CAN. All following commands, `SELECT` included,
 are wrapped in secure messaging. The implementation follows gemSpec_COS,
 gemSpec_eGK_ObjSys_G2.1 and gemSpec_eGK_Fach_VSDM by gematik and ICAO
 Doc 9303 Part 11.
+
+### Releases
+
+Releases are automatic. When CI on `main` is green, the *Tag release*
+workflow reads `version` from `[workspace.package]` in `Cargo.toml`. If the
+tag `vX.Y.Z` does not exist yet, it creates the tag and starts the *Release*
+workflow. That workflow packages the binaries of exactly that CI run (no
+rebuild) and publishes a GitHub release whose changelog lists all commits
+since the previous tag. To release, bump the version in `Cargo.toml` and
+merge to `main`. Pushing a `vX.Y.Z` tag by hand also triggers a release.
 
 ### Development
 
