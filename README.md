@@ -105,9 +105,9 @@ Windows). You can also start it directly with `cargo run --release -p kye-app`.
    every stored field. **Discard data** clears the view.
    Nothing is kept after you close the app.
 
-The interface is available in **English** (default) and **German**. It
-follows your system language and can be switched at the bottom of the left
-panel.
+The interface is available in **English** (default) and **German**, in a
+light and a dark appearance. Both follow your system settings and can be
+changed in the header (*Language*, *Appearance*).
 
 ### Messages
 
@@ -169,6 +169,18 @@ translate the values, and register it in `Lang` in
 [`crates/kye-app/src/i18n.rs`](crates/kye-app/src/i18n.rs). The tests fail
 if a language misses a message or if the UI uses an unknown one.
 
+### UI
+
+The UI lives in [`crates/kye-app/src/app.rs`](crates/kye-app/src/app.rs).
+All colors come from one palette per mode in
+[`theme.rs`](crates/kye-app/src/theme.rs), icons are painted in
+[`icons.rs`](crates/kye-app/src/icons.rs). To review every screen in light,
+dark and German with synthetic data, render them to PNG:
+
+```bash
+cargo test -p kye-app preview -- --ignored   # writes target/ui-preview/*.png
+```
+
 ### Releases
 
 Releases are automatic. When CI on `main` is green, the *Tag release*
@@ -212,3 +224,6 @@ welcome.
 
 Licensed under either of [Apache License 2.0](LICENSE-APACHE) or
 [MIT license](LICENSE-MIT), at your option.
+
+The bundled IBM Plex fonts in `crates/kye-app/assets/fonts/` are licensed
+under the [SIL Open Font License 1.1](crates/kye-app/assets/fonts/OFL.txt).

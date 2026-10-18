@@ -27,6 +27,7 @@ sys-locale = "0.3"
 
 [dev-dependencies]
 fluent-syntax = "0.12"
+egui_kittest = { version = "0.35", features = ["wgpu", "snapshot"] }
 
 [lints]
 workspace = true

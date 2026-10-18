@@ -218,8 +218,16 @@ mod tests {
     #[test]
     fn arguments_and_fallback() {
         let de = I18n::new(Lang::De);
-        let text = de.t_with("error-card", &[("detail", "X".into())]);
+        let text = de.t_with("error-card-text", &[("detail", "X".into())]);
         assert!(text.contains('X') && !text.contains('\u{2068}'), "{text}");
         assert_eq!(de.t("no-such-message"), "no-such-message");
+        let en = I18n::new(Lang::En);
+        let date = [
+            ("year", "2024".into()),
+            ("month", "01".into()),
+            ("day", "31".into()),
+        ];
+        assert_eq!(en.t_with("date-format", &date), "2024-01-31");
+        assert_eq!(de.t_with("date-format", &date), "31.01.2024");
     }
 }

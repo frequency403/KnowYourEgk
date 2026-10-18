@@ -5,6 +5,8 @@
 
 mod app;
 mod i18n;
+mod icons;
+mod theme;
 mod worker;
 
 fn main() -> eframe::Result {

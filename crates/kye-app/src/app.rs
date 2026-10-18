@@ -1,55 +1,104 @@
-//! egui front end. All card I/O happens on the worker thread.
+//! egui front end, laid out after the clickable UI concept. All card I/O
+//! happens on the worker thread; all colors come from `theme::Palette`.
 
-use eframe::egui::{self, Color32, RichText};
+use std::collections::HashMap;
+
+use eframe::egui::{
+    self, Align, Color32, CornerRadius, CursorIcon, Frame, Layout, Margin, RichText, ScrollArea,
+    Sense, Stroke, StrokeKind, Vec2, WidgetInfo, WidgetType, vec2,
+};
 use kye_egk::xml::Element;
-use kye_egk::{InsuranceData, PersonalData, StatusVd};
+use kye_egk::{InsuranceData, PersonalData};
 use kye_pace::Password;
 use kye_transport::{CardInterface, ReaderInfo};
 use zeroize::Zeroize;
 
 use crate::i18n::{I18n, Lang};
+use crate::icons;
+use crate::theme::{self, Palette, ThemeChoice, bold, medium, mono, regular, semibold};
 use crate::worker::{self, Event, Progress, ReadError, ReadOutcome, Request, Worker};
 
-const WARN: Color32 = Color32::from_rgb(0xD9, 0x8C, 0x00);
-const ERROR: Color32 = Color32::from_rgb(0xD0, 0x40, 0x40);
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Tab {
+    Overview,
+    Personal,
+    Insurance,
+    Raw,
+}
+
+enum Phase {
+    Idle,
+    Reading { secure: bool, progress: Progress },
+    Failed(ReadError),
+    Done(Box<ReadOutcome>),
+}
+
+/// Where a button in the main panel leads.
+#[derive(Clone, Copy)]
+enum Action {
+    EnterCanAgain,
+    BackToStart,
+}
 
 pub struct App {
     tr: I18n,
+    theme: ThemeChoice,
     worker: Worker,
     readers: Vec<ReaderInfo>,
+    /// Interface last seen per reader slot, to label empty slots.
+    kinds: HashMap<String, CardInterface>,
     unavailable: Option<String>,
-    /// CAN as typed by the user. Kept in memory only and zeroized on drop.
+    /// CAN as typed by the user. Kept in memory only, cleared after each read.
     can: String,
-    busy: Option<Progress>,
-    result: Option<Result<ReadOutcome, ReadError>>,
+    phase: Phase,
+    tab: Tab,
 }
 
 impl App {
     pub fn new(cc: &eframe::CreationContext<'_>) -> std::io::Result<Self> {
+        theme::install(&cc.egui_ctx);
+        let theme = ThemeChoice::System;
+        theme.apply(&cc.egui_ctx);
         let ctx = cc.egui_ctx.clone();
         let worker = worker::spawn(move || ctx.request_repaint())?;
         Ok(Self {
             tr: I18n::new(Lang::detect()),
+            theme,
             worker,
             readers: Vec::new(),
+            kinds: HashMap::new(),
             unavailable: None,
             can: String::new(),
-            busy: None,
-            result: None,
+            phase: Phase::Idle,
+            tab: Tab::Overview,
         })
     }
 
     fn drain_events(&mut self) {
         while let Ok(ev) = self.worker.events.try_recv() {
             match ev {
-                Event::Readers(r) => {
-                    self.readers = r;
+                Event::Readers(readers) => {
+                    for r in &readers {
+                        if let Some(i) = r.interface() {
+                            self.kinds.insert(r.name.clone(), i);
+                        }
+                    }
+                    self.readers = readers;
                     self.unavailable = None;
                 }
-                Event::Progress(p) => self.busy = Some(p),
-                Event::Finished(r) => {
-                    self.busy = None;
-                    self.result = Some(*r);
+                Event::Progress(p) => {
+                    if let Phase::Reading { secure, progress } = &mut self.phase {
+                        *progress = p;
+                        *secure |= p == Progress::Pace;
+                    }
+                }
+                Event::Finished(result) => {
+                    self.can.zeroize();
+                    self.tab = Tab::Overview;
+                    self.phase = match *result {
+                        Ok(outcome) => Phase::Done(Box::new(outcome)),
+                        Err(e) => Phase::Failed(e),
+                    };
                 }
                 Event::Unavailable(e) => {
                     self.unavailable = Some(e);
@@ -59,142 +108,719 @@ impl App {
         }
     }
 
-    fn start_read(&mut self, reader: &str) {
-        let can = Password::can(&self.can).ok();
+    fn reading(&self) -> bool {
+        matches!(self.phase, Phase::Reading { .. })
+    }
+
+    fn start_read(&mut self, reader: &str, interface: CardInterface) {
         let req = Request::Read {
             reader: reader.to_owned(),
-            can,
+            can: Password::can(&self.can).ok(),
         };
         if self.worker.requests.send(req).is_ok() {
-            self.busy = Some(Progress::Starting);
-            self.result = None;
+            self.phase = Phase::Reading {
+                secure: interface == CardInterface::Contactless,
+                progress: Progress::Starting,
+            };
         }
     }
 
-    fn language_selector(&mut self, ui: &mut egui::Ui) {
-        let mut lang = self.tr.lang();
+    // ---------------------------------------------------------------- header
+
+    fn header(&mut self, ui: &mut egui::Ui) {
+        let pal = *Palette::of(ui.ctx());
         ui.horizontal(|ui| {
-            ui.label(self.tr.t("language-label"));
-            egui::ComboBox::from_id_salt("language")
-                .selected_text(lang.native_name())
-                .show_ui(ui, |ui| {
-                    for l in Lang::ALL {
-                        ui.selectable_value(&mut lang, l, l.native_name());
-                    }
-                });
+            // Tall enough for the combo boxes, so everything centers on one line.
+            ui.set_min_height(40.0);
+            icons::paint(ui, vec2(32.0, 32.0), |p, r| icons::logo(p, r, pal.accent));
+            ui.add_space(4.0);
+            ui.vertical(|ui| {
+                ui.spacing_mut().item_spacing.y = 0.0;
+                ui.label(RichText::new("KnowYourEgk").font(bold(17.0)).color(pal.ink));
+                ui.label(
+                    RichText::new(self.tr.t("header-tagline"))
+                        .font(regular(12.0))
+                        .color(pal.muted),
+                );
+            });
+
+            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                self.theme_selector(ui, &pal);
+                ui.add_space(12.0);
+                self.language_selector(ui, &pal);
+                ui.add_space(16.0);
+                ui.label(
+                    RichText::new(self.tr.t("header-offline"))
+                        .font(regular(13.0))
+                        .color(pal.muted),
+                );
+                icons::paint(ui, vec2(16.0, 16.0), |p, r| icons::lock(p, r, pal.muted));
+            });
         });
+    }
+
+    fn language_selector(&mut self, ui: &mut egui::Ui, pal: &Palette) {
+        let mut lang = self.tr.lang();
+        egui::ComboBox::from_id_salt("language")
+            .selected_text(lang.native_name())
+            .show_ui(ui, |ui| {
+                for l in Lang::ALL {
+                    ui.selectable_value(&mut lang, l, l.native_name());
+                }
+            });
+        ui.label(
+            RichText::new(self.tr.t("language-label"))
+                .font(regular(13.0))
+                .color(pal.muted),
+        );
         if lang != self.tr.lang() {
             self.tr = I18n::new(lang);
         }
     }
 
-    fn reader_panel(&mut self, ui: &mut egui::Ui) {
-        let tr = &self.tr;
-        ui.heading(tr.t("readers-heading"));
-        ui.add_space(4.0);
-        if let Some(e) = &self.unavailable {
-            ui.colored_label(
-                ERROR,
-                tr.t_with("readers-unavailable", &[("detail", e.clone().into())]),
-            );
-            return;
-        }
-        if self.readers.is_empty() {
-            ui.label(tr.t("readers-none"));
-        }
-
-        let can_valid = Password::can(&self.can).is_ok();
-        let mut start = None;
-        for r in &self.readers {
-            ui.group(|ui| {
-                ui.label(RichText::new(short_name(&r.name)).strong());
-                let (label, can_read) = match r.interface() {
-                    None => (tr.t("slot-empty"), false),
-                    Some(CardInterface::Contact) => (tr.t("slot-contact"), true),
-                    Some(CardInterface::Contactless) => (tr.t("slot-contactless"), can_valid),
-                    Some(CardInterface::Unknown) => (tr.t("slot-unknown"), true),
-                };
-                ui.label(label);
-                let enabled = can_read && self.busy.is_none();
-                if r.atr.is_some()
-                    && ui
-                        .add_enabled(enabled, egui::Button::new(tr.t("button-read")))
-                        .clicked()
-                {
-                    start = Some(r.name.clone());
-                }
-                if r.interface() == Some(CardInterface::Contactless) && !can_valid {
-                    ui.small(tr.t("can-needed-hint"));
-                }
-            });
-        }
-        if let Some(name) = start {
-            self.start_read(&name);
-        }
-
-        ui.add_space(12.0);
-        ui.label(self.tr.t("can-label"));
-        ui.add(
-            egui::TextEdit::singleline(&mut self.can)
-                .password(true)
-                .char_limit(6)
-                .desired_width(120.0)
-                .hint_text("······"),
-        );
-        ui.small(self.tr.t("can-note"));
-
-        ui.add_space(12.0);
-        ui.separator();
-        self.language_selector(ui);
+    fn theme_name(&self, t: ThemeChoice) -> String {
+        self.tr.t(match t {
+            ThemeChoice::System => "theme-system",
+            ThemeChoice::Light => "theme-light",
+            ThemeChoice::Dark => "theme-dark",
+        })
     }
 
-    fn result_panel(&mut self, ui: &mut egui::Ui) {
-        let tr = &self.tr;
-        if let Some(step) = self.busy {
-            ui.horizontal(|ui| {
-                ui.spinner();
-                ui.label(progress_text(tr, step));
+    fn theme_selector(&mut self, ui: &mut egui::Ui, pal: &Palette) {
+        let mut choice = self.theme;
+        egui::ComboBox::from_id_salt("theme")
+            .selected_text(self.theme_name(choice))
+            .show_ui(ui, |ui| {
+                for t in ThemeChoice::ALL {
+                    ui.selectable_value(&mut choice, t, self.theme_name(t));
+                }
             });
-            return;
+        ui.label(
+            RichText::new(self.tr.t("theme-label"))
+                .font(regular(13.0))
+                .color(pal.muted),
+        );
+        if choice != self.theme {
+            self.theme = choice;
+            choice.apply(ui.ctx());
         }
-        let mut clear = false;
-        match &self.result {
-            None => {
-                ui.heading(tr.t("welcome-heading"));
-                ui.label(tr.t("welcome-text"));
+    }
+
+    // --------------------------------------------------------------- sidebar
+
+    fn sidebar(&mut self, ui: &mut egui::Ui) {
+        let pal = *Palette::of(ui.ctx());
+        ui.spacing_mut().item_spacing.y = 14.0;
+        ui.label(
+            RichText::new(self.tr.t("readers-heading").to_uppercase())
+                .font(semibold(13.0))
+                .color(pal.muted),
+        );
+        if let Some(e) = &self.unavailable {
+            ui.label(
+                RichText::new(
+                    self.tr
+                        .t_with("readers-unavailable", &[("detail", e.clone().into())]),
+                )
+                .color(pal.error_ink),
+            );
+        } else if self.readers.is_empty() {
+            ui.label(RichText::new(self.tr.t("readers-none")).color(pal.muted));
+        }
+
+        let mut start = None;
+        for r in self.readers.clone() {
+            if let Some(i) = self.reader_card(ui, &pal, &r) {
+                start = Some((r.name.clone(), i));
             }
-            Some(Err(e)) => {
-                ui.colored_label(ERROR, error_text(tr, e));
-            }
-            Some(Ok(outcome)) => {
-                ui.horizontal(|ui| {
-                    ui.heading(tr.t("result-heading"));
-                    ui.label(match (outcome.interface, outcome.secured) {
-                        (CardInterface::Contactless, _) => tr.t("read-via-contactless"),
-                        (_, true) => tr.t("read-via-contact-pace"),
-                        _ => tr.t("read-via-contact"),
+        }
+        if let Some((name, interface)) = start {
+            self.start_read(&name, interface);
+        }
+
+        ui.with_layout(Layout::bottom_up(Align::Min), |ui| {
+            ui.label(
+                RichText::new(self.tr.t("readers-footer"))
+                    .font(regular(12.0))
+                    .color(pal.muted),
+            );
+        });
+    }
+
+    /// Draws one reader slot; returns the card interface if "Read" was clicked.
+    fn reader_card(
+        &mut self,
+        ui: &mut egui::Ui,
+        pal: &Palette,
+        r: &ReaderInfo,
+    ) -> Option<CardInterface> {
+        let iface = r.interface();
+        let has_card = iface.is_some();
+        let kind = iface.or_else(|| self.kinds.get(&r.name).copied());
+        let is_nfc = kind == Some(CardInterface::Contactless);
+        let reading = self.reading();
+        let mut clicked = None;
+
+        let stroke = if has_card {
+            Stroke::new(2.0, pal.accent)
+        } else {
+            Stroke::new(1.0, pal.line)
+        };
+        Frame::new()
+            .fill(pal.surface)
+            .stroke(stroke)
+            .corner_radius(CornerRadius::same(12))
+            .inner_margin(Margin::same(16))
+            .show(ui, |ui| {
+                ui.set_width(ui.available_width());
+                ui.spacing_mut().item_spacing.y = 0.0;
+                ui.horizontal_top(|ui| {
+                    let (bg, ink) = if has_card {
+                        (pal.accent_soft, pal.accent)
+                    } else {
+                        (pal.neutral_soft, pal.faint)
+                    };
+                    icons::paint(ui, vec2(40.0, 40.0), |p, rect| {
+                        p.rect_filled(rect, CornerRadius::same(10), bg);
+                        let inner = egui::Rect::from_center_size(rect.center(), Vec2::splat(22.0));
+                        if is_nfc {
+                            icons::nfc(p, inner, ink);
+                        } else {
+                            icons::contact(p, inner, ink);
+                        }
                     });
-                    if ui.button(tr.t("button-discard")).clicked() {
-                        clear = true;
+                    ui.add_space(4.0);
+                    ui.vertical(|ui| {
+                        ui.label(
+                            RichText::new(short_name(&r.name))
+                                .font(semibold(14.0))
+                                .color(pal.ink),
+                        );
+                        ui.add_space(2.0);
+                        let kind_key = match kind {
+                            Some(CardInterface::Contact) => "slot-kind-contact",
+                            Some(CardInterface::Contactless) => "slot-kind-contactless",
+                            _ => "slot-kind-unknown",
+                        };
+                        ui.label(
+                            RichText::new(self.tr.t(kind_key))
+                                .font(regular(13.0))
+                                .color(pal.muted),
+                        );
+                        ui.add_space(8.0);
+                        let status_key = match iface {
+                            None => "status-no-card",
+                            Some(CardInterface::Contact) => "status-inserted",
+                            Some(CardInterface::Contactless) => "status-on-reader",
+                            Some(CardInterface::Unknown) => "status-unknown-card",
+                        };
+                        let (dot, ink) = if has_card {
+                            (pal.accent, pal.accent_text)
+                        } else {
+                            (pal.control_border, pal.muted)
+                        };
+                        ui.horizontal(|ui| {
+                            ui.spacing_mut().item_spacing.x = 6.0;
+                            icons::paint(ui, vec2(8.0, 16.0), |p, rect| {
+                                p.circle_filled(rect.center(), 4.0, dot);
+                            });
+                            ui.label(
+                                RichText::new(self.tr.t(status_key))
+                                    .font(medium(13.0))
+                                    .color(ink),
+                            );
+                        });
+                    });
+                });
+
+                if has_card && is_nfc {
+                    ui.add_space(14.0);
+                    self.can_field(ui, pal);
+                }
+
+                if has_card {
+                    ui.add_space(14.0);
+                    let needs_can = is_nfc && Password::can(&self.can).is_err();
+                    let label = if reading {
+                        self.tr.t("button-reading")
+                    } else if needs_can {
+                        self.tr.t("button-enter-can")
+                    } else {
+                        self.tr.t("button-read")
+                    };
+                    let enabled = !reading && !needs_can;
+                    if button(ui, pal, &label, Kind::Primary, enabled, true).clicked() {
+                        clicked = iface;
+                    }
+                }
+            });
+        clicked
+    }
+
+    fn can_field(&mut self, ui: &mut egui::Ui, pal: &Palette) {
+        ui.spacing_mut().item_spacing.y = 8.0;
+        ui.label(
+            RichText::new(self.tr.t("can-label"))
+                .font(semibold(13.0))
+                .color(pal.ink),
+        );
+        ui.horizontal(|ui| {
+            ui.spacing_mut().item_spacing.x = 12.0;
+            icons::paint(ui, vec2(64.0, 42.0), |p, r| icons::can_card(p, r, pal))
+                .on_hover_text(self.tr.t("can-illustration"));
+            ui.add(
+                egui::Label::new(
+                    RichText::new(self.tr.t("can-where"))
+                        .font(regular(12.0))
+                        .color(pal.muted),
+                )
+                .wrap(),
+            );
+        });
+        let label = self.tr.t("can-label");
+        let edit = egui::TextEdit::singleline(&mut self.can)
+            .password(true)
+            .char_limit(6)
+            .font(mono(22.0))
+            .text_color(pal.ink)
+            .background_color(pal.surface)
+            .desired_width(f32::INFINITY)
+            .margin(Margin::symmetric(14, 12))
+            .hint_text("······");
+        ui.add(edit)
+            .widget_info(|| WidgetInfo::labeled(WidgetType::TextEdit, true, &label));
+        self.can.retain(|c| c.is_ascii_digit());
+        ui.label(
+            RichText::new(self.tr.t("can-note"))
+                .font(regular(12.0))
+                .color(pal.muted),
+        );
+    }
+
+    // ------------------------------------------------------------ main panel
+
+    fn main_panel(&mut self, ui: &mut egui::Ui) {
+        let pal = *Palette::of(ui.ctx());
+        let action = match &self.phase {
+            Phase::Idle => {
+                self.empty_view(ui, &pal);
+                None
+            }
+            Phase::Reading { secure, progress } => {
+                self.reading_view(ui, &pal, *secure, *progress);
+                None
+            }
+            Phase::Failed(e) => self.error_view(ui, &pal, e),
+            Phase::Done(outcome) => {
+                let (discard, tab) = self.result_view(ui, &pal, outcome, self.tab);
+                self.tab = tab;
+                discard.then_some(Action::BackToStart)
+            }
+        };
+        match action {
+            Some(Action::EnterCanAgain) => {
+                self.can.zeroize();
+                self.phase = Phase::Idle;
+            }
+            Some(Action::BackToStart) => {
+                self.phase = Phase::Idle;
+                self.tab = Tab::Overview;
+            }
+            None => {}
+        }
+    }
+
+    fn empty_view(&self, ui: &mut egui::Ui, pal: &Palette) {
+        let tr = &self.tr;
+        ui.vertical_centered(|ui| {
+            ui.add_space((ui.available_height() * 0.12).clamp(24.0, 96.0));
+            icons::paint(ui, vec2(180.0, 120.0), |p, r| {
+                icons::reader_with_card(p, r, pal)
+            });
+            ui.add_space(20.0);
+            ui.label(
+                RichText::new(tr.t("empty-heading"))
+                    .font(bold(28.0))
+                    .color(pal.ink),
+            );
+            ui.add_space(6.0);
+            ui.scope(|ui| {
+                ui.set_max_width(520.0);
+                ui.label(
+                    RichText::new(tr.t("empty-text"))
+                        .font(regular(15.0))
+                        .color(pal.muted),
+                );
+            });
+            ui.add_space(20.0);
+            ui.scope(|ui| {
+                ui.set_max_width(620.0);
+                ui.columns(2, |cols| {
+                    for (col, (title, text)) in cols.iter_mut().zip([
+                        ("empty-contact-title", "empty-contact-text"),
+                        ("empty-nfc-title", "empty-nfc-text"),
+                    ]) {
+                        card(pal).inner_margin(Margin::same(18)).show(col, |ui| {
+                            ui.set_width(ui.available_width());
+                            ui.with_layout(Layout::top_down(Align::Min), |ui| {
+                                ui.label(
+                                    RichText::new(tr.t(title))
+                                        .font(semibold(14.0))
+                                        .color(pal.ink),
+                                );
+                                ui.label(
+                                    RichText::new(tr.t(text))
+                                        .font(regular(13.0))
+                                        .color(pal.muted),
+                                );
+                            });
+                        });
                     }
                 });
-                ui.separator();
-                egui::ScrollArea::vertical().show(ui, |ui| {
-                    show_status(ui, tr, &outcome.vsd.status);
-                    show_personal(ui, tr, &outcome.vsd.personal);
-                    show_insurance(ui, tr, &outcome.vsd.insurance);
-                    egui::CollapsingHeader::new(tr.t("raw-fields"))
-                        .default_open(false)
-                        .show(ui, |ui| {
-                            show_leaves(ui, "pd", &outcome.vsd.personal.xml);
-                            show_leaves(ui, "vd", &outcome.vsd.insurance.xml);
+            });
+        });
+    }
+
+    fn reading_view(&self, ui: &mut egui::Ui, pal: &Palette, secure: bool, progress: Progress) {
+        let tr = &self.tr;
+        let steps: &[&str] = if secure {
+            &[
+                "step-connecting",
+                "step-pace",
+                "step-reading-secure",
+                "step-parsing",
+            ]
+        } else {
+            &["step-connecting", "step-reading", "step-parsing"]
+        };
+        let active = match progress {
+            Progress::Starting | Progress::Connecting => 0,
+            Progress::Reading | Progress::Pace => 1,
+            Progress::ReadingSecure => 2,
+            Progress::Parsing => steps.len() - 1,
+        };
+        centered_column(ui, 460.0, |ui| {
+            card(pal)
+                .inner_margin(Margin::same(28))
+                .corner_radius(CornerRadius::same(14))
+                .show(ui, |ui| {
+                    ui.set_width(ui.available_width());
+                    ui.label(
+                        RichText::new(tr.t("reading-heading"))
+                            .font(bold(20.0))
+                            .color(pal.ink),
+                    );
+                    ui.add_space(2.0);
+                    let hint = if secure {
+                        "reading-hint-secure"
+                    } else {
+                        "reading-hint-contact"
+                    };
+                    ui.label(
+                        RichText::new(tr.t(hint))
+                            .font(regular(14.0))
+                            .color(pal.muted),
+                    );
+                    ui.add_space(16.0);
+                    for (i, key) in steps.iter().enumerate() {
+                        let done = i < active;
+                        let current = i == active;
+                        ui.horizontal(|ui| {
+                            ui.spacing_mut().item_spacing.x = 12.0;
+                            let bg = if done {
+                                pal.accent
+                            } else if current {
+                                pal.accent_soft
+                            } else {
+                                pal.neutral_soft
+                            };
+                            let dot = icons::paint(ui, vec2(26.0, 26.0), |p, rect| {
+                                p.circle_filled(rect.center(), 13.0, bg);
+                                if done {
+                                    let inner = egui::Rect::from_center_size(
+                                        rect.center(),
+                                        Vec2::splat(14.0),
+                                    );
+                                    icons::check(p, inner, pal.on_accent);
+                                }
+                            });
+                            if current {
+                                let inner = egui::Rect::from_center_size(
+                                    dot.rect.center(),
+                                    Vec2::splat(16.0),
+                                );
+                                egui::Spinner::new()
+                                    .size(16.0)
+                                    .color(pal.accent)
+                                    .paint_at(ui, inner);
+                            }
+                            let font = if current {
+                                semibold(15.0)
+                            } else {
+                                regular(15.0)
+                            };
+                            let ink = if done || current { pal.ink } else { pal.faint };
+                            ui.label(RichText::new(tr.t(key)).font(font).color(ink));
                         });
+                        ui.add_space(6.0);
+                    }
+                    ui.add_space(12.0);
+                    ui.label(
+                        RichText::new(tr.t("reading-keep"))
+                            .font(regular(13.0))
+                            .color(pal.muted),
+                    );
+                });
+        });
+    }
+
+    fn error_view(&self, ui: &mut egui::Ui, pal: &Palette, e: &ReadError) -> Option<Action> {
+        let tr = &self.tr;
+        let (title, text, action) = match e {
+            ReadError::CanRequired => (
+                tr.t("error-can-required-title"),
+                tr.t("error-can-required-text"),
+                Action::BackToStart,
+            ),
+            ReadError::WrongCan => (
+                tr.t("error-wrong-can-title"),
+                tr.t("error-wrong-can-text"),
+                Action::EnterCanAgain,
+            ),
+            ReadError::CardRemoved => (
+                tr.t("error-card-removed-title"),
+                tr.t("error-card-removed-text"),
+                Action::BackToStart,
+            ),
+            ReadError::ReaderGone => (
+                tr.t("error-reader-gone-title"),
+                tr.t("error-reader-gone-text"),
+                Action::BackToStart,
+            ),
+            ReadError::NoCard => (
+                tr.t("error-no-card-title"),
+                tr.t("error-no-card-text"),
+                Action::BackToStart,
+            ),
+            ReadError::Unsupported => (
+                tr.t("error-unsupported-title"),
+                tr.t("error-unsupported-text"),
+                Action::BackToStart,
+            ),
+            ReadError::ServiceUnavailable => (
+                tr.t("error-service-title"),
+                tr.t("error-service-text"),
+                Action::BackToStart,
+            ),
+            ReadError::Card(detail) => (
+                tr.t("error-card-title"),
+                tr.t_with("error-card-text", &[("detail", detail.clone().into())]),
+                Action::BackToStart,
+            ),
+        };
+        let button_label = match action {
+            Action::EnterCanAgain => tr.t("error-retry-can"),
+            Action::BackToStart => tr.t("error-back"),
+        };
+        let mut clicked = false;
+        centered_column(ui, 480.0, |ui| {
+            Frame::new()
+                .fill(pal.surface)
+                .stroke(Stroke::new(1.0, pal.error_border))
+                .corner_radius(CornerRadius::same(14))
+                .inner_margin(Margin::same(28))
+                .show(ui, |ui| {
+                    ui.set_width(ui.available_width());
+                    ui.spacing_mut().item_spacing.y = 14.0;
+                    icons::paint(ui, vec2(44.0, 44.0), |p, rect| {
+                        p.circle_filled(rect.center(), 22.0, pal.error_bg);
+                        let inner = egui::Rect::from_center_size(rect.center(), Vec2::splat(22.0));
+                        icons::alert(p, inner, pal.error_ink);
+                    });
+                    ui.label(RichText::new(&title).font(bold(20.0)).color(pal.ink));
+                    ui.label(RichText::new(&text).font(regular(15.0)).color(pal.muted));
+                    clicked = button(ui, pal, &button_label, Kind::Primary, true, false).clicked();
+                });
+        });
+        clicked.then_some(action)
+    }
+
+    /// Returns whether the user discarded the data, and the selected tab.
+    fn result_view(
+        &self,
+        ui: &mut egui::Ui,
+        pal: &Palette,
+        outcome: &ReadOutcome,
+        mut tab: Tab,
+    ) -> (bool, Tab) {
+        let tr = &self.tr;
+        let p = &outcome.vsd.personal;
+        let i = &outcome.vsd.insurance;
+        let mut discard = false;
+        ui.spacing_mut().item_spacing.y = 18.0;
+
+        if outcome.vsd.status.update_incomplete {
+            Frame::new()
+                .fill(pal.warn_bg)
+                .stroke(Stroke::new(1.0, pal.warn_border))
+                .corner_radius(CornerRadius::same(10))
+                .inner_margin(Margin::symmetric(16, 14))
+                .show(ui, |ui| {
+                    ui.set_width(ui.available_width());
+                    ui.horizontal_top(|ui| {
+                        ui.spacing_mut().item_spacing.x = 12.0;
+                        icons::paint(ui, vec2(20.0, 20.0), |pa, r| {
+                            icons::info(pa, r, pal.warn_ink)
+                        });
+                        ui.vertical(|ui| {
+                            ui.spacing_mut().item_spacing.y = 2.0;
+                            ui.label(
+                                RichText::new(tr.t("update-incomplete-title"))
+                                    .font(semibold(14.0))
+                                    .color(pal.warn_ink),
+                            );
+                            ui.label(
+                                RichText::new(tr.t("update-incomplete-text"))
+                                    .font(regular(14.0))
+                                    .color(pal.warn_ink),
+                            );
+                        });
+                    });
+                });
+        }
+
+        // Avatar, name, insurer and insurant ID; badge and discard on the right.
+        ui.horizontal(|ui| {
+            ui.spacing_mut().item_spacing.x = 16.0;
+            let initials = initials(p);
+            icons::paint(ui, vec2(56.0, 56.0), |pa, rect| {
+                pa.circle_filled(rect.center(), 28.0, pal.accent_soft);
+                pa.text(
+                    rect.center(),
+                    egui::Align2::CENTER_CENTER,
+                    &initials,
+                    bold(20.0),
+                    pal.accent_text,
+                );
+            });
+            ui.vertical(|ui| {
+                ui.spacing_mut().item_spacing.y = 4.0;
+                let name = join(&[&p.first_name, &p.last_name]).unwrap_or_default();
+                ui.label(RichText::new(name).font(bold(26.0)).color(pal.ink));
+                ui.horizontal_wrapped(|ui| {
+                    ui.spacing_mut().item_spacing.x = 14.0;
+                    if let Some(payer) = &i.payer_name {
+                        ui.label(RichText::new(payer).font(regular(14.0)).color(pal.muted));
+                    }
+                    if let Some(id) = &p.insurant_id {
+                        ui.horizontal(|ui| {
+                            ui.spacing_mut().item_spacing.x = 4.0;
+                            ui.label(
+                                RichText::new(tr.t("insurant-id-inline"))
+                                    .font(regular(14.0))
+                                    .color(pal.muted),
+                            );
+                            ui.label(RichText::new(id).font(mono(14.0)).color(pal.ink));
+                        });
+                    }
+                });
+            });
+            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                ui.spacing_mut().item_spacing.x = 10.0;
+                discard = button(
+                    ui,
+                    pal,
+                    &tr.t("button-discard"),
+                    Kind::Secondary,
+                    true,
+                    false,
+                )
+                .clicked();
+                let (via, secure) = match (outcome.interface, outcome.secured) {
+                    (CardInterface::Contactless, _) => (tr.t("via-contactless"), true),
+                    (_, true) => (tr.t("via-contact-pace"), true),
+                    _ => (tr.t("via-contact"), false),
+                };
+                badge(ui, pal, &via, secure);
+            });
+        });
+
+        // Tabs with a baseline under the whole row.
+        let tabs_rect = ui
+            .horizontal(|ui| {
+                ui.spacing_mut().item_spacing.x = 24.0;
+                for (t, key) in [
+                    (Tab::Overview, "tab-overview"),
+                    (Tab::Personal, "tab-personal"),
+                    (Tab::Insurance, "tab-insurance"),
+                    (Tab::Raw, "tab-raw"),
+                ] {
+                    if tab_button(ui, pal, &tr.t(key), tab == t).clicked() {
+                        tab = t;
+                    }
+                }
+            })
+            .response
+            .rect;
+        ui.painter().hline(
+            ui.max_rect().x_range(),
+            tabs_rect.bottom(),
+            Stroke::new(1.0, pal.line),
+        );
+
+        match tab {
+            Tab::Overview => {
+                let personal: Vec<Row> = personal_rows(tr, p)
+                    .into_iter()
+                    .filter(|r| r.overview)
+                    .collect();
+                let insurance: Vec<Row> = insurance_rows(tr, i)
+                    .into_iter()
+                    .filter(|r| r.overview)
+                    .collect();
+                let cards = [
+                    (tr.t("section-personal"), personal),
+                    (tr.t("section-insurance"), insurance),
+                ];
+                if ui.available_width() >= 640.0 {
+                    ui.columns(2, |cols| {
+                        for (col, (title, rows)) in cols.iter_mut().zip(cards.iter()) {
+                            summary_card(col, pal, title, rows);
+                        }
+                    });
+                } else {
+                    for (title, rows) in &cards {
+                        summary_card(ui, pal, title, rows);
+                    }
+                }
+            }
+            Tab::Personal | Tab::Insurance => {
+                let rows = if tab == Tab::Personal {
+                    personal_rows(tr, p)
+                } else {
+                    insurance_rows(tr, i)
+                };
+                card(pal)
+                    .inner_margin(Margin::symmetric(20, 0))
+                    .show(ui, |ui| {
+                        ui.set_width(ui.available_width());
+                        definition_list(ui, pal, &rows);
+                    });
+            }
+            Tab::Raw => {
+                card(pal).show(ui, |ui| {
+                    ui.set_width(ui.available_width());
+                    raw_table(ui, pal, tr, &p.xml, &i.xml);
                 });
             }
         }
-        if clear {
-            self.result = None;
-        }
+
+        ui.label(
+            RichText::new(tr.t("result-footer"))
+                .font(regular(12.0))
+                .color(pal.muted),
+        );
+        (discard, tab)
     }
 }
 
@@ -204,11 +830,41 @@ impl eframe::App for App {
     }
 
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+        self.draw(ui);
+    }
+}
+
+impl App {
+    /// Draws the whole window.
+    pub fn draw(&mut self, ui: &mut egui::Ui) {
+        let pal = *Palette::of(ui.ctx());
+        egui::Panel::top("header")
+            .frame(
+                Frame::new()
+                    .fill(pal.surface)
+                    .inner_margin(Margin::symmetric(24, 14)),
+            )
+            .show(ui, |ui| self.header(ui));
         egui::Panel::left("readers")
-            .resizable(true)
-            .default_size(300.0)
-            .show(ui, |ui| self.reader_panel(ui));
-        egui::CentralPanel::default_margins().show(ui, |ui| self.result_panel(ui));
+            .resizable(false)
+            .exact_size(330.0)
+            .frame(
+                Frame::new()
+                    .fill(pal.sidebar)
+                    .inner_margin(Margin::same(20)),
+            )
+            .show(ui, |ui| self.sidebar(ui));
+        egui::CentralPanel::default_margins()
+            .frame(
+                Frame::new()
+                    .fill(pal.ground)
+                    .inner_margin(Margin::symmetric(32, 28)),
+            )
+            .show(ui, |ui| {
+                ScrollArea::vertical()
+                    .auto_shrink([false, false])
+                    .show(ui, |ui| self.main_panel(ui));
+            });
     }
 }
 
@@ -217,6 +873,294 @@ impl Drop for App {
         self.can.zeroize();
     }
 }
+
+#[cfg(test)]
+#[path = "preview.rs"]
+mod preview;
+
+// ------------------------------------------------------------------ widgets
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Kind {
+    Primary,
+    Secondary,
+}
+
+/// A filled (primary) or outlined (secondary) button, 40 px high.
+fn button(
+    ui: &mut egui::Ui,
+    pal: &Palette,
+    text: &str,
+    kind: Kind,
+    enabled: bool,
+    full_width: bool,
+) -> egui::Response {
+    let galley = ui
+        .painter()
+        .layout_no_wrap(text.to_owned(), semibold(14.0), Color32::PLACEHOLDER);
+    let width = if full_width {
+        ui.available_width()
+    } else {
+        galley.size().x + 32.0
+    };
+    let sense = if enabled {
+        Sense::click()
+    } else {
+        Sense::hover()
+    };
+    let (rect, response) = ui.allocate_exact_size(vec2(width, 40.0), sense);
+    let hovered = enabled && response.hovered();
+    let (fill, stroke, ink) = match (kind, enabled) {
+        (_, false) => (pal.disabled_bg, Stroke::NONE, pal.disabled_fg),
+        (Kind::Primary, true) => (
+            if hovered {
+                pal.accent_hover
+            } else {
+                pal.accent
+            },
+            Stroke::NONE,
+            pal.on_accent,
+        ),
+        (Kind::Secondary, true) => (
+            if hovered {
+                pal.neutral_soft
+            } else {
+                pal.surface
+            },
+            Stroke::new(1.0, pal.control_border),
+            pal.ink,
+        ),
+    };
+    let painter = ui.painter();
+    painter.rect(
+        rect,
+        CornerRadius::same(8),
+        fill,
+        stroke,
+        StrokeKind::Inside,
+    );
+    if response.has_focus() {
+        painter.rect_stroke(
+            rect.expand(3.0),
+            CornerRadius::same(10),
+            Stroke::new(2.0, pal.accent),
+            StrokeKind::Outside,
+        );
+    }
+    painter.galley(rect.center() - galley.size() / 2.0, galley, ink);
+    response.widget_info(|| WidgetInfo::labeled(WidgetType::Button, enabled, text));
+    if enabled {
+        response.on_hover_cursor(CursorIcon::PointingHand)
+    } else {
+        response
+    }
+}
+
+fn tab_button(ui: &mut egui::Ui, pal: &Palette, text: &str, selected: bool) -> egui::Response {
+    let galley = ui
+        .painter()
+        .layout_no_wrap(text.to_owned(), semibold(14.0), Color32::PLACEHOLDER);
+    let (rect, response) =
+        ui.allocate_exact_size(vec2(galley.size().x + 4.0, 44.0), Sense::click());
+    let ink = if selected {
+        pal.accent_text
+    } else if response.hovered() {
+        pal.ink
+    } else {
+        pal.muted
+    };
+    let painter = ui.painter();
+    painter.galley(rect.center() - galley.size() / 2.0, galley, ink);
+    if selected {
+        painter.hline(
+            rect.x_range(),
+            rect.bottom() - 1.0,
+            Stroke::new(2.0, pal.accent),
+        );
+    }
+    if response.has_focus() {
+        painter.rect_stroke(
+            rect,
+            CornerRadius::same(4),
+            Stroke::new(2.0, pal.accent),
+            StrokeKind::Outside,
+        );
+    }
+    response
+        .widget_info(|| WidgetInfo::selected(WidgetType::SelectableLabel, true, selected, text));
+    response.on_hover_cursor(CursorIcon::PointingHand)
+}
+
+fn badge(ui: &mut egui::Ui, pal: &Palette, text: &str, secure: bool) {
+    // Painted as one widget so it keeps its order inside right-to-left rows.
+    let galley = ui
+        .painter()
+        .layout_no_wrap(text.to_owned(), semibold(13.0), pal.accent_text);
+    let icon = 14.0;
+    let size = vec2(12.0 + icon + 6.0 + galley.size().x + 12.0, 30.0);
+    let (rect, response) = ui.allocate_exact_size(size, Sense::hover());
+    let painter = ui.painter();
+    painter.rect_filled(rect, CornerRadius::same(255), pal.accent_soft);
+    let icon_rect = egui::Rect::from_min_size(
+        egui::pos2(rect.left() + 12.0, rect.center().y - icon / 2.0),
+        Vec2::splat(icon),
+    );
+    if secure {
+        icons::lock(painter, icon_rect, pal.accent_text);
+    } else {
+        icons::contact(painter, icon_rect, pal.accent_text);
+    }
+    let text_pos = egui::pos2(
+        icon_rect.right() + 6.0,
+        rect.center().y - galley.size().y / 2.0,
+    );
+    painter.galley(text_pos, galley, pal.accent_text);
+    response.widget_info(|| WidgetInfo::labeled(WidgetType::Label, true, text));
+}
+
+fn card(pal: &Palette) -> Frame {
+    Frame::new()
+        .fill(pal.surface)
+        .stroke(Stroke::new(1.0, pal.line))
+        .corner_radius(CornerRadius::same(12))
+}
+
+/// A column of at most `max_width`, centered horizontally and placed a bit
+/// below the top.
+fn centered_column(ui: &mut egui::Ui, max_width: f32, add: impl FnOnce(&mut egui::Ui)) {
+    ui.vertical_centered(|ui| {
+        ui.add_space((ui.available_height() * 0.18).clamp(16.0, 140.0));
+        ui.scope(|ui| {
+            ui.set_max_width(max_width.min(ui.available_width()));
+            ui.with_layout(Layout::top_down(Align::Min), add);
+        });
+    });
+}
+
+fn summary_card(ui: &mut egui::Ui, pal: &Palette, title: &str, rows: &[Row]) {
+    card(pal).inner_margin(Margin::same(20)).show(ui, |ui| {
+        ui.set_width(ui.available_width());
+        ui.label(RichText::new(title).font(semibold(15.0)).color(pal.ink));
+        ui.add_space(4.0);
+        egui::Grid::new(title)
+            .num_columns(2)
+            .spacing([16.0, 10.0])
+            .min_col_width(ui.available_width() * 0.36)
+            .show(ui, |ui| {
+                for r in rows {
+                    ui.label(RichText::new(&r.label).font(regular(14.0)).color(pal.muted));
+                    ui.label(value_text(r, pal));
+                    ui.end_row();
+                }
+            });
+    });
+}
+
+#[derive(Clone)]
+struct Row {
+    label: String,
+    value: String,
+    mono: bool,
+    /// Shown on the overview card.
+    overview: bool,
+}
+
+fn row(label: String, value: Option<String>, mono: bool, overview: bool) -> Option<Row> {
+    value.map(|value| Row {
+        label,
+        value,
+        mono,
+        overview,
+    })
+}
+
+fn value_text(r: &Row, pal: &Palette) -> RichText {
+    let font = if r.mono { mono(14.0) } else { medium(14.0) };
+    RichText::new(&r.value).font(font).color(pal.ink)
+}
+
+fn definition_list(ui: &mut egui::Ui, pal: &Palette, rows: &[Row]) {
+    let label_width = (ui.available_width() * 0.33).max(140.0);
+    let count = rows.len();
+    ui.spacing_mut().item_spacing.y = 0.0;
+    for (n, r) in rows.iter().enumerate() {
+        ui.add_space(12.0);
+        ui.horizontal_top(|ui| {
+            ui.allocate_ui_with_layout(
+                vec2(label_width, 0.0),
+                Layout::top_down(Align::Min),
+                |ui| {
+                    ui.set_width(label_width);
+                    ui.label(RichText::new(&r.label).font(regular(14.0)).color(pal.muted));
+                },
+            );
+            ui.label(value_text(r, pal));
+        });
+        ui.add_space(12.0);
+        if n + 1 < count {
+            let y = ui.cursor().top();
+            ui.painter()
+                .hline(ui.max_rect().x_range(), y, Stroke::new(1.0, pal.line_soft));
+        }
+    }
+}
+
+fn raw_table(ui: &mut egui::Ui, pal: &Palette, tr: &I18n, pd: &Element, vd: &Element) {
+    Frame::new()
+        .inner_margin(Margin::symmetric(20, 14))
+        .show(ui, |ui| {
+            ui.set_width(ui.available_width());
+            ui.label(
+                RichText::new(tr.t("raw-intro"))
+                    .font(regular(13.0))
+                    .color(pal.muted),
+            );
+        });
+    ScrollArea::horizontal().id_salt("raw").show(ui, |ui| {
+        Frame::new()
+            .inner_margin(Margin {
+                left: 20,
+                right: 20,
+                top: 4,
+                bottom: 16,
+            })
+            .show(ui, |ui| {
+                ui.set_min_width(560.0);
+                egui::Grid::new("raw_table")
+                    .num_columns(2)
+                    .spacing([32.0, 9.0])
+                    .striped(true)
+                    .show(ui, |ui| {
+                        for key in ["raw-col-path", "raw-col-value"] {
+                            ui.label(
+                                RichText::new(tr.t(key))
+                                    .font(semibold(13.0))
+                                    .color(pal.muted),
+                            );
+                        }
+                        ui.end_row();
+                        for (caption, root) in
+                            [(tr.t("raw-group-pd"), pd), (tr.t("raw-group-vd"), vd)]
+                        {
+                            ui.label(RichText::new(caption).font(semibold(13.0)).color(pal.ink));
+                            ui.label("");
+                            ui.end_row();
+                            for (path, value) in root.leaves() {
+                                let path = path
+                                    .split_once('/')
+                                    .map_or(path.as_str(), |(_, rest)| rest)
+                                    .to_owned();
+                                ui.label(RichText::new(path).font(mono(13.0)).color(pal.muted));
+                                ui.label(RichText::new(value).font(mono(13.0)).color(pal.ink));
+                                ui.end_row();
+                            }
+                        }
+                    });
+            });
+    });
+}
+
+// --------------------------------------------------------------- formatting
 
 /// Strips the serial number in parentheses that some drivers append.
 fn short_name(name: &str) -> String {
@@ -233,51 +1177,12 @@ fn short_name(name: &str) -> String {
     out.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
-fn grid(ui: &mut egui::Ui, id: &str, rows: &[(String, Option<String>)]) {
-    egui::Grid::new(id)
-        .num_columns(2)
-        .spacing([24.0, 6.0])
-        .striped(true)
-        .show(ui, |ui| {
-            for (label, value) in rows {
-                if let Some(v) = value {
-                    ui.label(label);
-                    ui.label(RichText::new(v).strong());
-                    ui.end_row();
-                }
-            }
-        });
-}
-
-fn progress_text(tr: &I18n, p: Progress) -> String {
-    tr.t(match p {
-        Progress::Starting => "progress-starting",
-        Progress::Connecting => "progress-connecting",
-        Progress::Reading => "progress-reading",
-        Progress::Pace => "progress-pace",
-        Progress::ReadingSecure => "progress-reading-secure",
-        Progress::Parsing => "progress-parsing",
-    })
-}
-
-fn error_text(tr: &I18n, e: &ReadError) -> String {
-    match e {
-        ReadError::CanRequired => tr.t("error-can-required"),
-        ReadError::WrongCan => tr.t("error-wrong-can"),
-        ReadError::CardRemoved => tr.t("error-card-removed"),
-        ReadError::ReaderGone => tr.t("error-reader-gone"),
-        ReadError::NoCard => tr.t("error-no-card"),
-        ReadError::Unsupported => tr.t("error-unsupported"),
-        ReadError::ServiceUnavailable => tr.t("error-service"),
-        ReadError::Card(detail) => tr.t_with("error-card", &[("detail", detail.clone().into())]),
-    }
-}
-
-fn show_status(ui: &mut egui::Ui, tr: &I18n, s: &StatusVd) {
-    if s.update_incomplete {
-        ui.colored_label(WARN, tr.t("update-incomplete"));
-        ui.add_space(6.0);
-    }
+fn initials(p: &PersonalData) -> String {
+    [&p.first_name, &p.last_name]
+        .iter()
+        .filter_map(|n| n.as_deref().and_then(|s| s.chars().next()))
+        .flat_map(char::to_uppercase)
+        .collect()
 }
 
 /// Formats `YYYYMMDD` with the language's `date-format`; other input is shown as is.
@@ -325,9 +1230,7 @@ fn join(parts: &[&Option<String>]) -> Option<String> {
     (!s.is_empty()).then(|| s.join(" "))
 }
 
-fn show_personal(ui: &mut egui::Ui, tr: &I18n, p: &PersonalData) {
-    ui.add_space(4.0);
-    ui.strong(tr.t("section-personal"));
+fn personal_rows(tr: &I18n, p: &PersonalData) -> Vec<Row> {
     let name = join(&[
         &p.title,
         &p.first_name,
@@ -336,59 +1239,90 @@ fn show_personal(ui: &mut egui::Ui, tr: &I18n, p: &PersonalData) {
         &p.name_addition,
     ]);
     let mut rows = vec![
-        (tr.t("field-name"), name),
-        (tr.t("field-birth-date"), date(tr, &p.birth_date)),
-        (tr.t("field-sex"), sex(tr, &p.sex)),
-        (tr.t("field-insurant-id"), p.insurant_id.clone()),
+        row(tr.t("field-name"), name, false, true),
+        row(
+            tr.t("field-birth-date"),
+            date(tr, &p.birth_date),
+            false,
+            true,
+        ),
+        row(tr.t("field-sex"), sex(tr, &p.sex), false, true),
+        row(tr.t("field-insurant-id"), p.insurant_id.clone(), true, true),
     ];
     if let Some(a) = &p.street_address {
-        rows.push((tr.t("field-street"), join(&[&a.street, &a.house_number])));
-        rows.push((tr.t("field-address-addition"), a.addition.clone()));
-        rows.push((tr.t("field-city"), join(&[&a.postal_code, &a.city])));
-        rows.push((tr.t("field-country"), a.country.clone()));
+        rows.push(row(
+            tr.t("field-street"),
+            join(&[&a.street, &a.house_number]),
+            false,
+            false,
+        ));
+        rows.push(row(
+            tr.t("field-address-addition"),
+            a.addition.clone(),
+            false,
+            false,
+        ));
+        rows.push(row(
+            tr.t("field-city"),
+            join(&[&a.postal_code, &a.city]),
+            false,
+            false,
+        ));
+        rows.push(row(tr.t("field-country"), a.country.clone(), false, false));
     }
     if let Some(a) = &p.postbox_address {
-        rows.push((tr.t("field-postbox"), a.postbox.clone()));
-        rows.push((tr.t("field-postbox-city"), join(&[&a.postal_code, &a.city])));
+        rows.push(row(tr.t("field-postbox"), a.postbox.clone(), false, false));
+        rows.push(row(
+            tr.t("field-postbox-city"),
+            join(&[&a.postal_code, &a.city]),
+            false,
+            false,
+        ));
     }
-    grid(ui, "pd", &rows);
+    rows.into_iter().flatten().collect()
 }
 
-fn show_insurance(ui: &mut egui::Ui, tr: &I18n, i: &InsuranceData) {
-    ui.add_space(10.0);
-    ui.strong(tr.t("section-insurance"));
+fn insurance_rows(tr: &I18n, i: &InsuranceData) -> Vec<Row> {
     let end = date(tr, &i.coverage_end).or_else(|| Some(tr.t("coverage-open-ended")));
-    grid(
-        ui,
-        "vd",
-        &[
-            (tr.t("field-payer"), i.payer_name.clone()),
-            (tr.t("field-payer-id"), i.payer_id.clone()),
-            (tr.t("field-billing-payer"), i.billing_payer_name.clone()),
-            (tr.t("field-billing-payer-id"), i.billing_payer_id.clone()),
-            (tr.t("field-coverage-start"), date(tr, &i.coverage_start)),
-            (tr.t("field-coverage-end"), end),
-            (
-                tr.t("field-insurant-type"),
-                insurant_type(tr, &i.insurant_type),
-            ),
-            (tr.t("field-special-group"), i.special_group.clone()),
-            (tr.t("field-dmp"), i.dmp.clone()),
-            (tr.t("field-wop"), i.wop.clone()),
-            (tr.t("field-schema"), i.schema_version.clone()),
-        ],
-    );
-}
-
-fn show_leaves(ui: &mut egui::Ui, id: &str, root: &Element) {
-    egui::Grid::new(id)
-        .num_columns(2)
-        .striped(true)
-        .show(ui, |ui| {
-            for (path, text) in root.leaves() {
-                ui.monospace(path);
-                ui.label(text);
-                ui.end_row();
-            }
-        });
+    [
+        row(tr.t("field-payer"), i.payer_name.clone(), false, true),
+        row(tr.t("field-payer-id"), i.payer_id.clone(), true, false),
+        row(
+            tr.t("field-billing-payer"),
+            i.billing_payer_name.clone(),
+            false,
+            false,
+        ),
+        row(
+            tr.t("field-billing-payer-id"),
+            i.billing_payer_id.clone(),
+            true,
+            false,
+        ),
+        row(
+            tr.t("field-coverage-start"),
+            date(tr, &i.coverage_start),
+            false,
+            true,
+        ),
+        row(tr.t("field-coverage-end"), end, false, true),
+        row(
+            tr.t("field-insurant-type"),
+            insurant_type(tr, &i.insurant_type),
+            false,
+            true,
+        ),
+        row(
+            tr.t("field-special-group"),
+            i.special_group.clone(),
+            false,
+            false,
+        ),
+        row(tr.t("field-dmp"), i.dmp.clone(), false, false),
+        row(tr.t("field-wop"), i.wop.clone(), true, false),
+        row(tr.t("field-schema"), i.schema_version.clone(), true, false),
+    ]
+    .into_iter()
+    .flatten()
+    .collect()
 }
