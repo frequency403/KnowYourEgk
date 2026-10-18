@@ -134,4 +134,4 @@ KYE_CAN=<6 digits> cargo test -p kye-egk --test hw_oracle -- --ignored --nocaptu
 | M3 ✅ | SM-Lesen kontaktlos | Byte-Vergleich mit Kontaktpfad grün |
 | M4 ◐ | Fehlerpfade, Hot-Plug, CI-Matrix Win/Linux/macOS | Builds + manuelle Tests auf allen OS |
 
-M4-Stand (2026-10-18): Linux manuell abgenommen (falsche CAN, Karte während CL-Read entfernt, Omnikey-Replug). CI-Workflow `.github/workflows/ci.yml` existiert, ist aber mangels Remote noch nie gelaufen; Windows/macOS nur per `cargo clippy --target` typgeprüft, weder gelinkt noch mit Karte getestet.
+M4-Stand (2026-10-18): Linux manuell abgenommen (falsche CAN, Karte während CL-Read entfernt, Omnikey-Replug). CI (github.com/frequency403/KnowYourEgk) grün auf Linux/Windows/macOS inkl. Release-Build und MSRV 1.92. Offen: manuelle Tests mit Karte unter Windows und macOS.
