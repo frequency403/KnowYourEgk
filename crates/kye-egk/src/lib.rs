@@ -3,11 +3,14 @@
 
 pub mod commands;
 pub mod contactless;
+pub mod model;
 pub mod objects;
 pub mod read;
 pub mod status_vd;
 pub mod vsd;
+pub mod xml;
 
+pub use model::{InsuranceData, PersonalData, Vsd};
 pub use status_vd::StatusVd;
 pub use vsd::{RawVsd, read_raw_vsd};
 

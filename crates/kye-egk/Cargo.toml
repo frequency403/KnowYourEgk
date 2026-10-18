@@ -13,6 +13,9 @@ kye-transport.workspace = true
 kye-pace.workspace = true
 kye-sm.workspace = true
 thiserror.workspace = true
+flate2 = "1"
+encoding_rs = "0.8"
+quick-xml = "0.42"
 
 [dev-dependencies]
 kye-transport = { workspace = true, features = ["pcsc"] }

@@ -7,7 +7,20 @@ rust-version.workspace = true
 license.workspace = true
 publish.workspace = true
 
+[[bin]]
+name = "knowyouregk"
+path = "src/main.rs"
+
 [dependencies]
+kye-apdu.workspace = true
+kye-transport = { workspace = true, features = ["pcsc"] }
+kye-pace.workspace = true
+kye-egk.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+thiserror.workspace = true
+eframe = { version = "0.35", default-features = false, features = ["default_fonts", "glow", "wayland", "x11", "accesskit"] }
+zeroize = "1"
 
 [lints]
 workspace = true

@@ -34,8 +34,10 @@ Kartenzugriff blockierend im Worker-Thread, kein async.
 cargo fmt --all
 cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
+cargo run -p kye-app             # desktop app (binary: knowyouregk)
 cargo run -p m0-spike            # needs pcscd (Linux) and a reader; RUST_LOG=kye::apdu=debug for APDU trace
 KYE_CAN=<6 digits> cargo run -p m0-spike   # additionally runs full PACE on the CL slot (CAN only via env, never commit it)
+[KYE_CAN=<6 digits>] cargo test -p kye-egk --test hw_structure -- --ignored --nocapture   # prints XML element structure only, no content
 KYE_CAN=<6 digits> cargo test -p kye-egk --test hw_oracle -- --ignored --nocapture   # contact vs. CL byte comparison; prompts to move the card
 ```
 
@@ -102,7 +104,7 @@ KYE_CAN=<6 digits> cargo test -p kye-egk --test hw_oracle -- --ignored --nocaptu
 - Response: `[87|81] || 99 02 SW || 8E 08 MAC`. MAC über `SSC || 87/81 || 99` prüfen, dann entschlüsseln.
 - Nach PACE **alle** APDUs über SM senden, auch SELECT. (Annahme; das Verhalten bei Plain-APDUs ist in der Spec nicht eindeutig geklärt.)
 - Mit echter eGK verifiziert (2026-10-18): SM-READ mit 256-Byte-Chunks (Response ~290 Byte, Case 4E) über CardMan 5121 CL. Header-only-MAC (Case 1) ist nur gegen den Simulator getestet.
-- EF.VD: `offEndVD` wird als inklusiv behandelt (Lesen bis `offEndVD + 1`); in M1 am gzip-Trailer prüfen.
+- EF.VD: `offEndVD` ist inklusiv (Lesen bis `offEndVD + 1`), an echter Karte verifiziert (0 Restbytes nach dem gzip-Member).
 
 ## Plattform-Fallstricke
 
