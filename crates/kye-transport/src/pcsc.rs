@@ -17,8 +17,14 @@ const MAX_GET_RESPONSE_ROUNDS: usize = 64;
 impl From<pcsc::Error> for TransportError {
     fn from(e: pcsc::Error) -> Self {
         match e {
+            // pcsc-lite reports an IFD communication error in SCardTransmit as
+            // SCARD_E_NOT_TRANSACTED, e.g. when a card leaves the RF field.
             pcsc::Error::NoSmartcard => Self::NoCard,
-            pcsc::Error::RemovedCard | pcsc::Error::ResetCard => Self::CardRemoved,
+            pcsc::Error::RemovedCard
+            | pcsc::Error::ResetCard
+            | pcsc::Error::NotTransacted
+            | pcsc::Error::UnpoweredCard
+            | pcsc::Error::UnresponsiveCard => Self::CardRemoved,
             pcsc::Error::Timeout => Self::Timeout,
             pcsc::Error::UnknownReader | pcsc::Error::ReaderUnavailable => {
                 Self::UnknownReader(e.to_string())
@@ -206,4 +212,28 @@ fn transmit(card: &Card, cmd: &Command) -> Result<Response, TransportError> {
         sw = part.sw;
     }
     Ok(Response::new(data, StatusWord(sw.0)))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn lost_card_errors_map_to_removed() {
+        for e in [
+            pcsc::Error::RemovedCard,
+            pcsc::Error::ResetCard,
+            pcsc::Error::NotTransacted,
+            pcsc::Error::UnresponsiveCard,
+        ] {
+            assert!(
+                matches!(TransportError::from(e), TransportError::CardRemoved),
+                "{e:?}"
+            );
+        }
+        assert!(matches!(
+            TransportError::from(pcsc::Error::ServiceStopped),
+            TransportError::ServiceUnavailable
+        ));
+    }
 }

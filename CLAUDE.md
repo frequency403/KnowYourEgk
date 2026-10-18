@@ -108,6 +108,7 @@ KYE_CAN=<6 digits> cargo test -p kye-egk --test hw_oracle -- --ignored --nocaptu
 
 ## Plattform-Fallstricke
 
+- pcsc-lite meldet Kommunikationsabbruch in `SCardTransmit` (Karte verlässt das RF-Feld) als `SCARD_E_NOT_TRANSACTED` → wird auf `CardRemoved` gemappt.
 - PACE + Lesen in `SCardBeginTransaction`/`EndTransaction` mit `ShareMode::Exclusive` kapseln, weil Windows Smart Card PnP Fremd-APDUs schickt.
 - Extended APDU auf dem CL-Slot: mit OMNIKEY CardMan 5121 (076B:5121) unter Linux/pcsc-lite verifiziert (Case 2E und 4E, M0-Spike 2026-10-18). Windows/macOS noch offen.
 - Der CL-Pseudo-ATR dieser eGK ist `3B 80 80 01 01`.
@@ -131,4 +132,6 @@ KYE_CAN=<6 digits> cargo test -p kye-egk --test hw_oracle -- --ignored --nocaptu
 | M1 ✅ | Kontaktpfad komplett, Parser, egui-MVP | Daten korrekt angezeigt |
 | M2 ✅ | PACE | T_PICC verifiziert |
 | M3 ✅ | SM-Lesen kontaktlos | Byte-Vergleich mit Kontaktpfad grün |
-| M4 | Fehlerpfade, Hot-Plug, CI-Matrix Win/Linux/macOS | Builds + manuelle Tests auf allen OS |
+| M4 ◐ | Fehlerpfade, Hot-Plug, CI-Matrix Win/Linux/macOS | Builds + manuelle Tests auf allen OS |
+
+M4-Stand (2026-10-18): Linux manuell abgenommen (falsche CAN, Karte während CL-Read entfernt, Omnikey-Replug). CI-Workflow `.github/workflows/ci.yml` existiert, ist aber mangels Remote noch nie gelaufen; Windows/macOS nur per `cargo clippy --target` typgeprüft, weder gelinkt noch mit Karte getestet.
