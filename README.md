@@ -1,6 +1,7 @@
 # KnowYourEgk
 
 [![CI](https://github.com/frequency403/KnowYourEgk/actions/workflows/ci.yml/badge.svg)](https://github.com/frequency403/KnowYourEgk/actions/workflows/ci.yml)
+[![Translation status](https://hosted.weblate.org/widget/knowyouregk/svg-badge.svg)](https://hosted.weblate.org/projects/knowyouregk/)
 
 **See what is stored on your German health insurance card.**
 
@@ -112,7 +113,7 @@ Windows). You can also start it directly with `cargo run --release -p kye-app`.
    Nothing is kept after you close the app.
 
 The interface is available in **English** (default), **German** and every
-language contributed [on Weblate](WEBLATE_URL), in a light and a dark
+language contributed [on Weblate](https://hosted.weblate.org/projects/knowyouregk/), in a light and a dark
 appearance. Both follow your system settings and can be
 changed in the header (*Language*, *Appearance*).
 
@@ -169,7 +170,7 @@ Doc 9303 Part 11.
 
 ### Translations
 
-KnowYourEgk is translated on [Weblate](WEBLATE_URL), so you can help without
+KnowYourEgk is translated on [Weblate](https://hosted.weblate.org/projects/knowyouregk/), so you can help without
 programming. All UI texts live in [Fluent](https://projectfluent.org) files in
 [`crates/kye-app/i18n/`](crates/kye-app/i18n): `en.ftl` is the source and
 fallback, every other `<code>.ftl` file is picked up as a language

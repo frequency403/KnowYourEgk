@@ -9,7 +9,7 @@ stronger or weaker than the English source.
 ## Two ways to contribute
 
 1. **On Weblate (no programming needed):** translate in the browser on
-   [Weblate](WEBLATE_URL). Weblate sends the result to this repository as a
+   [Weblate](https://hosted.weblate.org/projects/knowyouregk/). Weblate sends the result to this repository as a
    pull request.
 2. **On GitHub:** copy `crates/kye-app/i18n/en.ftl` to
    `crates/kye-app/i18n/<code>.ftl` (for example `fr.ftl`, `pt_BR.ftl`),
