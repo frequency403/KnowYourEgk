@@ -23,8 +23,7 @@ crates/
   kye-pace       # PACE ECDH-GM, EF.CardAccess (SecurityInfos) parsing
   kye-egk        # eGK object model, chunked reads, VSD parsing
   kye-app        # eframe/egui; card I/O on a worker thread, UI via channels
-tools/
-  m0-spike       # hardware spike (CLI): M0 checks + PACE (M2), see "Befehle"
+tools/           # git-ignored, not a workspace member (old m0-spike lives there locally only)
 ```
 
 Kartenzugriff blockierend im Worker-Thread, kein async.
@@ -36,8 +35,6 @@ cargo fmt --all
 cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
 cargo run -p kye-app             # desktop app (binary: knowyouregk)
-cargo run -p m0-spike            # needs pcscd (Linux) and a reader; RUST_LOG=kye::apdu=debug for APDU trace
-KYE_CAN=<6 digits> cargo run -p m0-spike   # additionally runs full PACE on the CL slot (CAN only via env, never commit it)
 [KYE_CAN=<6 digits>] cargo test -p kye-egk --test hw_structure -- --ignored --nocapture   # prints XML element structure only, no content
 KYE_CAN=<6 digits> cargo test -p kye-egk --test hw_oracle -- --ignored --nocapture   # contact vs. CL byte comparison; prompts to move the card
 ```

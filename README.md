@@ -152,8 +152,6 @@ crates/
   kye-sm         secure messaging (AES-CBC + CMAC) as a CardTransport decorator
   kye-egk        eGK objects, chunked reads, gzip/ISO-8859-15/XML parsing of PD/VD
   kye-app        desktop app (eframe/egui)
-tools/
-  m0-spike       hardware diagnostics CLI
 ```
 
 Contact reads are plain `SELECT` / `READ BINARY`. Contactless access to the
@@ -194,9 +192,6 @@ worked example, and full card flows against scripted mock transports.
 Tests that need a real card are `#[ignore]`d and print no card content:
 
 ```bash
-# Diagnostics: reader slots, ATRs, contact/contactless checks (+ PACE with KYE_CAN)
-KYE_CAN=123456 cargo run -p m0-spike
-
 # Element structure of PD/VD (tag names and text lengths only)
 KYE_CAN=123456 cargo test -p kye-egk --test hw_structure -- --ignored --nocapture
 
