@@ -13,6 +13,7 @@ use kye_pace::Password;
 use kye_transport::{CardInterface, ReaderInfo};
 use zeroize::Zeroize;
 
+use crate::export::{self, Format};
 use crate::i18n::{I18n, Lang};
 use crate::icons;
 use crate::theme::{self, Palette, ThemeChoice, bold, medium, mono, regular, semibold};
@@ -64,6 +65,8 @@ pub struct App {
     tab: Tab,
     /// Height of the sidebar footer in the last frame, to pin it to the bottom.
     footer_height: f32,
+    /// Outcome of the last export: the saved path, or an error.
+    export_status: Option<Result<String, String>>,
 }
 
 impl App {
@@ -85,6 +88,7 @@ impl App {
             phase: Phase::Idle,
             tab: Tab::Overview,
             footer_height: 0.0,
+            export_status: None,
         })
     }
 
@@ -469,8 +473,14 @@ impl App {
             }
             Phase::Failed(e) => self.error_view(ui, &pal, e),
             Phase::Done(outcome) => {
-                let (discard, tab) = self.result_view(ui, &pal, outcome, self.tab);
+                let (discard, tab, export) = self.result_view(ui, &pal, outcome, self.tab);
                 self.tab = tab;
+                if let Some(format) = export {
+                    let status = self.export(outcome, format);
+                    if status.is_some() {
+                        self.export_status = status;
+                    }
+                }
                 discard.then_some(Action::BackToStart)
             }
         };
@@ -482,9 +492,41 @@ impl App {
             Some(Action::BackToStart) => {
                 self.phase = Phase::Idle;
                 self.tab = Tab::Overview;
+                self.export_status = None;
             }
             None => {}
         }
+    }
+
+    /// Asks for a file name and writes the export. `None` if cancelled.
+    fn export(&self, outcome: &ReadOutcome, format: Format) -> Option<Result<String, String>> {
+        let tr = &self.tr;
+        let bytes = match format {
+            Format::Text => Ok(export::to_text(&export_document(tr, outcome)).into_bytes()),
+            Format::Pdf => export::to_pdf(&export_document(tr, outcome)),
+            Format::Json => {
+                let via = match outcome.interface {
+                    CardInterface::Contactless => "contactless",
+                    _ => "contact",
+                };
+                Ok(export::to_json(&outcome.vsd, via, outcome.secured).into_bytes())
+            }
+        };
+        let bytes = match bytes {
+            Ok(b) => b,
+            Err(e) => return Some(Err(e)),
+        };
+        let ext = format.extension();
+        let path = rfd::FileDialog::new()
+            .set_title(tr.t("export-dialog-title"))
+            .set_file_name(format!("knowyouregk-vsd.{ext}"))
+            .add_filter(format_name(tr, format), &[ext])
+            .save_file()?;
+        Some(
+            std::fs::write(&path, bytes)
+                .map(|()| path.display().to_string())
+                .map_err(|e| e.to_string()),
+        )
     }
 
     fn empty_view(&self, ui: &mut egui::Ui, pal: &Palette) {
@@ -720,11 +762,12 @@ impl App {
         pal: &Palette,
         outcome: &ReadOutcome,
         mut tab: Tab,
-    ) -> (bool, Tab) {
+    ) -> (bool, Tab, Option<Format>) {
         let tr = &self.tr;
         let p = &outcome.vsd.personal;
         let i = &outcome.vsd.insurance;
         let mut discard = false;
+        let mut export_format = None;
         ui.spacing_mut().item_spacing.y = 18.0;
 
         if outcome.vsd.status.update_incomplete {
@@ -764,25 +807,30 @@ impl App {
             (_, true) => (tr.t("via-contact-pace"), true),
             _ => (tr.t("via-contact"), false),
         };
-        let wide = ui.available_width() >= 760.0;
-        // Badge and discard button; in a right-to-left row they end up at the
+        let wide = ui.available_width() >= 860.0;
+        // Badge, export and discard; in a right-to-left row they end up at the
         // right edge, in a left-to-right row at the left.
         let mut actions = |ui: &mut egui::Ui, rtl: bool| {
             ui.spacing_mut().item_spacing.x = 10.0;
-            if !rtl {
-                badge(ui, pal, &via, secure);
-            }
-            discard |= button(
-                ui,
-                pal,
-                &tr.t("button-discard"),
-                Kind::Secondary,
-                true,
-                false,
-            )
-            .clicked();
+            let mut discard_button = |ui: &mut egui::Ui| {
+                discard |= button(
+                    ui,
+                    pal,
+                    &tr.t("button-discard"),
+                    Kind::Secondary,
+                    true,
+                    false,
+                )
+                .clicked();
+            };
             if rtl {
+                discard_button(ui);
+                export_format = export_menu(ui, pal, tr).or(export_format);
                 badge(ui, pal, &via, secure);
+            } else {
+                badge(ui, pal, &via, secure);
+                export_format = export_menu(ui, pal, tr).or(export_format);
+                discard_button(ui);
             }
         };
         ui.horizontal(|ui| {
@@ -837,6 +885,23 @@ impl App {
         });
         if !wide {
             ui.horizontal(|ui| actions(ui, false));
+        }
+        match &self.export_status {
+            Some(Ok(path)) => {
+                ui.label(
+                    RichText::new(tr.t_with("export-saved", &[("path", path.clone().into())]))
+                        .font(regular(13.0))
+                        .color(pal.accent_text),
+                );
+            }
+            Some(Err(e)) => {
+                ui.label(
+                    RichText::new(tr.t_with("export-failed", &[("detail", e.clone().into())]))
+                        .font(regular(13.0))
+                        .color(pal.error_ink),
+                );
+            }
+            None => {}
         }
 
         // Tabs with a baseline under the whole row.
@@ -914,7 +979,7 @@ impl App {
                 .font(regular(12.0))
                 .color(pal.muted),
         );
-        (discard, tab)
+        (discard, tab, export_format)
     }
 }
 
@@ -1367,6 +1432,103 @@ fn raw_table(ui: &mut egui::Ui, pal: &Palette, tr: &I18n, pd: &Element, vd: &Ele
                     });
             });
     });
+}
+
+fn format_name(tr: &I18n, format: Format) -> String {
+    tr.t(match format {
+        Format::Pdf => "export-format-pdf",
+        Format::Text => "export-format-text",
+        Format::Json => "export-format-json",
+    })
+}
+
+/// "Export" button with a menu of formats; returns the chosen one.
+fn export_menu(ui: &mut egui::Ui, pal: &Palette, tr: &I18n) -> Option<Format> {
+    let response = button(
+        ui,
+        pal,
+        &tr.t("export-button"),
+        Kind::Secondary,
+        true,
+        false,
+    );
+    let mut chosen = None;
+    egui::Popup::menu(&response).show(|ui| {
+        ui.set_min_width(180.0);
+        for format in Format::ALL {
+            if ui.button(format_name(tr, format)).clicked() {
+                chosen = Some(format);
+            }
+        }
+    });
+    chosen
+}
+
+/// Translated content for the text and PDF exports.
+fn export_document(tr: &I18n, outcome: &ReadOutcome) -> export::Document {
+    let vsd = &outcome.vsd;
+    let pairs = |rows: Vec<Row>| rows.into_iter().map(|r| (r.label, r.value)).collect();
+    let via = match (outcome.interface, outcome.secured) {
+        (CardInterface::Contactless, _) => tr.t("via-contactless"),
+        (_, true) => tr.t("via-contact-pace"),
+        _ => tr.t("via-contact"),
+    };
+    let ts = &vsd.status.timestamp;
+    let day = format!("{:04}{:02}{:02}", ts.year, ts.month, ts.day);
+    let last_update = format!(
+        "{} {:02}:{:02} UTC",
+        date(tr, &Some(day)).unwrap_or_default(),
+        ts.hour,
+        ts.minute
+    );
+    let status_rows = vec![
+        (tr.t("field-last-update"), last_update),
+        (
+            tr.t("field-version-xml"),
+            vsd.status.version_xml.to_string(),
+        ),
+        (
+            tr.t("field-version-storage"),
+            vsd.status.version_storage.to_string(),
+        ),
+    ];
+    export::Document {
+        title: tr.t("export-title"),
+        meta: vec![
+            via,
+            tr.t_with(
+                "export-generator",
+                &[("version", env!("CARGO_PKG_VERSION").into())],
+            ),
+        ],
+        warning: vsd.status.update_incomplete.then(|| {
+            format!(
+                "{} {}",
+                tr.t("update-incomplete-title"),
+                tr.t("update-incomplete-text")
+            )
+        }),
+        sections: vec![
+            export::Section {
+                title: tr.t("section-personal"),
+                rows: pairs(personal_rows(tr, &vsd.personal)),
+            },
+            export::Section {
+                title: tr.t("section-insurance"),
+                rows: pairs(insurance_rows(tr, &vsd.insurance)),
+            },
+            export::Section {
+                title: tr.t("section-card-status"),
+                rows: status_rows,
+            },
+        ],
+        raw_title: tr.t("tab-raw"),
+        raw: vec![
+            (tr.t("raw-group-pd"), raw_leaves(&vsd.personal.xml)),
+            (tr.t("raw-group-vd"), raw_leaves(&vsd.insurance.xml)),
+        ],
+        footer: tr.t("export-footer"),
+    }
 }
 
 // --------------------------------------------------------------- formatting

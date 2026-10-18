@@ -4,6 +4,7 @@
 //! inserted (contact) or placed on the reader (contactless, PACE with CAN).
 
 mod app;
+mod export;
 mod i18n;
 mod icons;
 mod theme;

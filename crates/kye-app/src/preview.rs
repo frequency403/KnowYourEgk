@@ -159,6 +159,7 @@ fn app(readers: Vec<ReaderInfo>, phase: Phase, tab: Tab, can: &str, lang: Lang) 
         phase,
         tab,
         footer_height: 0.0,
+        export_status: None,
     }
 }
 
@@ -332,6 +333,34 @@ fn preview() {
     ];
     for (name, theme, state) in scenes {
         render(name, theme, size, state);
+    }
+
+    // Export samples (synthetic data) next to the screenshots.
+    for lang in [Lang::En, Lang::De] {
+        let tr = I18n::new(lang);
+        let outcome = ReadOutcome {
+            interface: CardInterface::Contactless,
+            secured: true,
+            vsd: vsd(true),
+        };
+        let doc = super::export_document(&tr, &outcome);
+        let code = if lang == Lang::De { "de" } else { "en" };
+        let dir = out_dir();
+        std::fs::write(
+            dir.join(format!("export-{code}.txt")),
+            crate::export::to_text(&doc),
+        )
+        .unwrap();
+        std::fs::write(
+            dir.join(format!("export-{code}.pdf")),
+            crate::export::to_pdf(&doc).unwrap(),
+        )
+        .unwrap();
+        std::fs::write(
+            dir.join("export.json"),
+            crate::export::to_json(&outcome.vsd, "contactless", true),
+        )
+        .unwrap();
     }
 
     // Minimum window size: the sidebar must scroll instead of overlapping, and

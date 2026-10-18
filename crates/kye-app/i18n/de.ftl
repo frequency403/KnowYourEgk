@@ -143,3 +143,20 @@ copy-all-tooltip = Alles kopieren
 
 footer-github = Quellcode auf GitHub
 footer-donate = Spendier mir einen Kaffee
+
+## Export
+
+export-button = Exportieren
+export-format-pdf = PDF-Dokument (.pdf)
+export-format-text = Textdatei (.txt)
+export-format-json = JSON-Daten (.json)
+export-dialog-title = Versichertendaten exportieren
+export-saved = Gespeichert unter { $path }
+export-failed = Export fehlgeschlagen: { $detail }
+export-title = Versichertenstammdaten
+export-generator = Exportiert mit KnowYourEgk { $version }
+export-footer = Dieses Dokument enthält personenbezogene Daten von der elektronischen Gesundheitskarte. Bewahre es sorgfältig auf und gib es nur bewusst weiter.
+section-card-status = Kartenstatus
+field-last-update = Letzte Aktualisierung auf der Karte
+field-version-xml = XML-Schemaversion
+field-version-storage = Version des Speicherformats

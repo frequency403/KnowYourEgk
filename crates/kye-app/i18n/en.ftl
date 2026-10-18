@@ -144,3 +144,20 @@ copy-all-tooltip = Copy all
 
 footer-github = Source code on GitHub
 footer-donate = Buy me a coffee
+
+## Export
+
+export-button = Export
+export-format-pdf = PDF document (.pdf)
+export-format-text = Text file (.txt)
+export-format-json = JSON data (.json)
+export-dialog-title = Export insurance data
+export-saved = Saved to { $path }
+export-failed = Export failed: { $detail }
+export-title = Insurance master data
+export-generator = Exported with KnowYourEgk { $version }
+export-footer = This document contains personal data from the electronic health card. Store and share it carefully.
+section-card-status = Card status
+field-last-update = Last update on the card
+field-version-xml = XML schema version
+field-version-storage = Storage format version

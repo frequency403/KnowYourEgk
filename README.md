@@ -101,8 +101,14 @@ Windows). You can also start it directly with `cargo run --release -p kye-app`.
       *Card on reader (contactless)*.
    3. Click **Read**. Setting up the encrypted channel takes about
       two seconds. Do not move the card until the data is shown.
-4. Your data appears on the right. Expand *All fields (raw data)* to see
-   every stored field. **Discard data** clears the view.
+4. Your data appears on the right, grouped in the tabs *Overview*,
+   *Personal data*, *Insurance* and *All fields* (every stored XML element).
+   - **Copy:** hover a value to show a copy icon next to it; the icon at the
+     top right of a card copies the whole card.
+   - **Export:** saves the data as a PDF document, a text file or JSON. Text
+     and PDF use the current UI language, JSON uses stable English keys.
+     Exported files contain personal data, so store them carefully.
+   - **Discard data** clears the view.
    Nothing is kept after you close the app.
 
 The interface is available in **English** (default) and **German**, in a
